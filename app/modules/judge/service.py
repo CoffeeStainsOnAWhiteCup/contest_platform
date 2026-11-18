@@ -1,10 +1,11 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import SyncSessionLocal
 from app.models.models import (
     Problem,
@@ -15,7 +16,11 @@ from app.models.models import (
     VerdictStatus,
 )
 from app.modules.judge.sandbox.languages import get_language_config
-from app.modules.judge.sandbox.runner import SandboxSession, SandboxUnavailable
+from app.modules.judge.sandbox.runner import (
+    SandboxOutputLimitExceeded,
+    SandboxSession,
+    SandboxUnavailable,
+)
 from app.modules.judge.sandbox.verdicts import (
     aggregate_verdict,
     status_for_test,
@@ -25,28 +30,49 @@ from app.modules.judge.sandbox.verdicts import (
 logger = logging.getLogger(__name__)
 
 
+class JudgeBusy(Exception):
+    pass
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _claim_submission(submission_id: uuid.UUID) -> bool:
+    now = _now()
+    stale_before = now - timedelta(seconds=settings.JUDGE_STALE_TIMEOUT_S)
     with SyncSessionLocal() as session:
         claimed_id = session.execute(
             update(Submission)
             .where(
                 Submission.id == submission_id,
-                Submission.status == SubmissionStatus.PENDING,
+                or_(
+                    Submission.status == SubmissionStatus.PENDING,
+                    and_(
+                        Submission.status == SubmissionStatus.RUNNING,
+                        or_(
+                            Submission.judge_started_at.is_(None),
+                            Submission.judge_started_at < stale_before,
+                        ),
+                    ),
+                ),
             )
             .values(
                 status=SubmissionStatus.RUNNING,
-                judge_started_at=_now(),
+                judge_started_at=now,
                 judge_attempt=Submission.judge_attempt + 1,
                 error_message=None,
             )
             .returning(Submission.id)
         ).scalar_one_or_none()
         session.commit()
-        return claimed_id is not None
+        if claimed_id is not None:
+            return True
+        current_status = session.scalar(select(Submission.status).where(Submission.id == submission_id))
+
+    if current_status == SubmissionStatus.RUNNING:
+        raise JudgeBusy(f"Submission {submission_id} is already running")
+    return False
 
 
 def _finalize(
@@ -170,11 +196,43 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
             statuses: list[VerdictStatus] = []
             time_values: list[int] = []
             memory_values: list[int] = []
+            first_failed_test: int | None = None
 
             for index, test in enumerate(tests, start=1):
-                execution = sandbox.run_test(test.input_data)
+                try:
+                    execution = sandbox.run_test(test.input_data)
+                except SandboxOutputLimitExceeded as exc:
+                    statuses.append(VerdictStatus.RUNTIME_ERROR)
+                    runtime_output = exc.stderr.decode("utf-8", errors="replace")[:2000]
+                    test_results.append(
+                        {
+                            "test_id": test.id,
+                            "ordinal": index,
+                            "status": VerdictStatus.RUNTIME_ERROR,
+                            "time_ms": None,
+                            "memory_kb": None,
+                            "exit_code": None,
+                            "stderr_excerpt": runtime_output or str(exc)[:2000],
+                        }
+                    )
+                    _finalize(
+                        submission_id,
+                        VerdictStatus.RUNTIME_ERROR,
+                        time_ms=max(time_values) if time_values else None,
+                        memory_kb=max(memory_values) if memory_values else None,
+                        compile_output=compile_output or None,
+                        runtime_output=runtime_output or str(exc),
+                        total_tests=len(tests),
+                        passed_tests=sum(1 for status in statuses if status == VerdictStatus.ACCEPTED),
+                        message=f"Output limit exceeded on test {index}",
+                        test_results=test_results,
+                    )
+                    return
+
                 test_status = status_for_test(execution, test.expected_output)
                 statuses.append(test_status)
+                if test_status != VerdictStatus.ACCEPTED and first_failed_test is None:
+                    first_failed_test = index
                 time_values.append(execution.time_ms)
                 if execution.memory_kb is not None:
                     memory_values.append(execution.memory_kb)
@@ -195,6 +253,9 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
 
             verdict = aggregate_verdict(statuses)
             passed_tests = sum(1 for status in statuses if status == VerdictStatus.ACCEPTED)
+            message = None
+            if verdict != VerdictStatus.ACCEPTED:
+                message = f"Failed on test {first_failed_test}" if first_failed_test is not None else "Failed"
             _finalize(
                 submission_id,
                 verdict,
@@ -204,7 +265,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
                 runtime_output=runtime_output or None,
                 total_tests=len(tests),
                 passed_tests=passed_tests,
-                message=None if verdict == VerdictStatus.ACCEPTED else f"Failed on test {passed_tests + 1}",
+                message=message,
                 test_results=test_results,
             )
     except SandboxUnavailable as exc:

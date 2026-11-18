@@ -4,7 +4,7 @@ import uuid
 from app.core.celery_app import celery
 from app.core.config import settings
 from app.modules.judge.sandbox.runner import SandboxUnavailable
-from app.modules.judge.service import judge_submission_sync, mark_submission_system_error
+from app.modules.judge.service import JudgeBusy, judge_submission_sync, mark_submission_system_error
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,11 @@ def judge_submission(self, submission_id: str) -> None:
     submission_uuid = uuid.UUID(submission_id)
     try:
         judge_submission_sync(submission_uuid)
+    except JudgeBusy as exc:
+        if self.request.retries >= self.max_retries:
+            mark_submission_system_error(submission_uuid, f"Submission remained running: {exc}")
+            return
+        raise self.retry(exc=exc, countdown=settings.JUDGE_STALE_TIMEOUT_S)
     except SandboxUnavailable as exc:
         if self.request.retries >= self.max_retries:
             mark_submission_system_error(submission_uuid, f"Sandbox unavailable after retries: {exc}")

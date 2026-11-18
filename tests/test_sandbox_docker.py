@@ -5,7 +5,7 @@ import pytest
 
 from app.models.models import Language
 from app.modules.judge.sandbox.languages import get_language_config
-from app.modules.judge.sandbox.runner import SandboxSession
+from app.modules.judge.sandbox.runner import SandboxOutputLimitExceeded, SandboxSession
 
 pytestmark = pytest.mark.docker
 
@@ -90,6 +90,17 @@ def test_python_runtime_error():
     )
     assert execution.exit_code != 0
     assert "boom" in execution.stderr
+
+
+def test_python_output_limit_is_enforced():
+    code = (
+        "import sys\n"
+        "while True:\n"
+        "    sys.stdout.write('x' * 4096)\n"
+        "    sys.stdout.flush()\n"
+    )
+    with pytest.raises(SandboxOutputLimitExceeded):
+        run_code(Language.PYTHON, code, "", time_limit_ms=5000)
 
 
 def test_network_is_disabled():

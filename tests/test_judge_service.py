@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.models.models import (
     Language,
     Submission,
@@ -9,8 +12,12 @@ from app.models.models import (
     Verdict,
     VerdictStatus,
 )
-from app.modules.judge.sandbox.runner import ExecutionResult, SandboxUnavailable
-from app.modules.judge.service import judge_submission_sync
+from app.modules.judge.sandbox.runner import (
+    ExecutionResult,
+    SandboxOutputLimitExceeded,
+    SandboxUnavailable,
+)
+from app.modules.judge.service import JudgeBusy, judge_submission_sync
 from tests.conftest import create_contest_and_problem
 
 
@@ -19,6 +26,8 @@ class FakeSandbox:
     compile_stderr = ""
     execution_results: list[ExecutionResult] = []
     unavailable = False
+    output_limit_exceeded = False
+    output_limit_after = 0
 
     def __init__(self, *args, **kwargs):
         self.results = list(self.execution_results)
@@ -35,6 +44,14 @@ class FakeSandbox:
         return self.compile_ok, "", self.compile_stderr
 
     def run_test(self, input_data):
+        if self.output_limit_after:
+            self.output_limit_after -= 1
+        elif self.output_limit_exceeded:
+            raise SandboxOutputLimitExceeded(
+                "Output limit of 65536 bytes exceeded",
+                stdout=b"x" * 128,
+                stderr=b"too much output",
+            )
         if not self.results:
             return ExecutionResult(0, "", "", 0, False, 0)
         return self.results.pop(0)
@@ -159,6 +176,78 @@ async def test_multiple_tests_aggregate_first_failure(db_session, participant, m
     assert verdict.status == VerdictStatus.WRONG_ANSWER
 
 
+async def test_message_reports_first_failed_test(db_session, participant, monkeypatch):
+    FakeSandbox.execution_results = [
+        result(stdout="4\n"),
+        result(stdout="4\n"),
+        result(stdout="6\n"),
+    ]
+    submission, _ = await make_submission(
+        db_session,
+        participant,
+        tests=[("1 2\n", "3\n"), ("2 2\n", "4\n"), ("3 3\n", "6\n")],
+    )
+    monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
+
+    judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.WRONG_ANSWER
+    assert submission.passed_tests == 2
+    assert submission.total_tests == 3
+    assert submission.error_message == "Failed on test 1"
+    assert verdict.status == VerdictStatus.WRONG_ANSWER
+    assert results[0].status == VerdictStatus.WRONG_ANSWER
+    assert results[1].status == VerdictStatus.ACCEPTED
+    assert results[2].status == VerdictStatus.ACCEPTED
+
+
+async def test_output_limit_marks_test_as_runtime_error(db_session, participant, monkeypatch):
+    FakeSandbox.output_limit_exceeded = True
+    submission, _ = await make_submission(
+        db_session,
+        participant,
+        tests=[("1 2\n", "3\n"), ("2 2\n", "4\n")],
+    )
+    monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
+
+    judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.RUNTIME_ERROR
+    assert submission.total_tests == 2
+    assert submission.passed_tests == 0
+    assert submission.error_message == "Output limit exceeded on test 1"
+    assert verdict.status == VerdictStatus.RUNTIME_ERROR
+    assert len(results) == 1
+    assert results[0].status == VerdictStatus.RUNTIME_ERROR
+    assert results[0].stderr_excerpt == "too much output"
+
+
+async def test_output_limit_reports_current_test_after_earlier_failure(
+    db_session, participant, monkeypatch
+):
+    FakeSandbox.execution_results = [result(stdout="4\n")]
+    FakeSandbox.output_limit_exceeded = True
+    FakeSandbox.output_limit_after = 1
+    submission, _ = await make_submission(
+        db_session,
+        participant,
+        tests=[("1 2\n", "3\n"), ("2 2\n", "4\n")],
+    )
+    monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
+
+    judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.RUNTIME_ERROR
+    assert submission.error_message == "Output limit exceeded on test 2"
+    assert verdict.status == VerdictStatus.RUNTIME_ERROR
+    assert len(results) == 2
+    assert results[0].status == VerdictStatus.WRONG_ANSWER
+    assert results[1].status == VerdictStatus.RUNTIME_ERROR
+
+
 async def test_no_tests_is_system_error(db_session, participant, monkeypatch):
     submission, _ = await make_submission(db_session, participant, tests=[])
     monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
@@ -202,10 +291,50 @@ async def test_sandbox_unavailable_resets_to_pending(db_session, participant, mo
     assert results == []
 
 
+async def test_stale_running_submission_is_reclaimed(db_session, participant, monkeypatch):
+    FakeSandbox.execution_results = [result()]
+    submission, _ = await make_submission(db_session, participant)
+    submission.status = SubmissionStatus.RUNNING
+    submission.judge_attempt = 1
+    submission.judge_started_at = datetime.now(timezone.utc) - timedelta(
+        seconds=settings.JUDGE_STALE_TIMEOUT_S + 1
+    )
+    await db_session.commit()
+    monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
+
+    judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.ACCEPTED
+    assert submission.judge_attempt == 2
+    assert verdict.status == VerdictStatus.ACCEPTED
+    assert len(results) == 1
+
+
+async def test_fresh_running_submission_is_not_reclaimed(db_session, participant, monkeypatch):
+    submission, _ = await make_submission(db_session, participant)
+    submission.status = SubmissionStatus.RUNNING
+    submission.judge_attempt = 1
+    submission.judge_started_at = datetime.now(timezone.utc)
+    await db_session.commit()
+    monkeypatch.setattr("app.modules.judge.service.SandboxSession", FakeSandbox)
+
+    with pytest.raises(JudgeBusy):
+        judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.RUNNING
+    assert submission.judge_attempt == 1
+    assert verdict is None
+    assert results == []
+
+
 @pytest.fixture(autouse=True)
 def reset_fake_sandbox():
     FakeSandbox.compile_ok = True
     FakeSandbox.compile_stderr = ""
     FakeSandbox.execution_results = []
     FakeSandbox.unavailable = False
+    FakeSandbox.output_limit_exceeded = False
+    FakeSandbox.output_limit_after = 0
     yield

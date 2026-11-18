@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     SANDBOX_COMPILE_TIMEOUT_S: int = 10
     SANDBOX_MAX_OUTPUT_BYTES: int = 65536
     JUDGE_MAX_ATTEMPTS: int = 3
+    JUDGE_STALE_TIMEOUT_S: int = 300
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

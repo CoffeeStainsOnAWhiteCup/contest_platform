@@ -22,6 +22,13 @@ class SandboxUnavailable(SandboxError):
     pass
 
 
+class SandboxOutputLimitExceeded(SandboxError):
+    def __init__(self, message: str, *, stdout: bytes = b"", stderr: bytes = b"") -> None:
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+
+
 @dataclass
 class ExecutionResult:
     exit_code: int
@@ -131,24 +138,61 @@ class SandboxSession:
         if exit_code != 0:
             raise SandboxUnavailable(f"Failed to copy source code into sandbox: {stderr}")
 
-    def _exec(self, command: list[str], *, user: str) -> tuple[int, str, str]:
+    def _kill_container(self) -> None:
         if self.container is None:
+            return
+        try:
+            self.container.kill()
+        except DockerException:
+            logger.exception("Failed to kill sandbox container", extra={"submission_id": str(self.submission_id)})
+
+    def _exec(self, command: list[str], *, user: str) -> tuple[int, str, str]:
+        if self.container is None or self.client is None:
             raise SandboxError("Sandbox container is not started")
 
-        result = self.container.exec_run(
+        exec_id = self.client.api.exec_create(
+            self.container.id,
             command,
             stdout=True,
             stderr=True,
-            demux=True,
             workdir="/work",
             user=user,
-        )
-        if isinstance(result.output, tuple):
-            stdout_raw, stderr_raw = result.output
-        else:
-            stdout_raw, stderr_raw = result.output, b""
+        )["Id"]
+        stream = self.client.api.exec_start(exec_id, stream=True, demux=True)
         limit = settings.SANDBOX_MAX_OUTPUT_BYTES
-        return result.exit_code, _decode(stdout_raw, limit), _decode(stderr_raw, limit)
+        stdout_parts: list[bytes] = []
+        stderr_parts: list[bytes] = []
+        total = 0
+        limit_exceeded = False
+
+        try:
+            for stdout_chunk, stderr_chunk in stream:
+                if stdout_chunk:
+                    total += len(stdout_chunk)
+                    if total <= limit:
+                        stdout_parts.append(stdout_chunk)
+                if stderr_chunk:
+                    total += len(stderr_chunk)
+                    if total <= limit:
+                        stderr_parts.append(stderr_chunk)
+                if total > limit:
+                    limit_exceeded = True
+                    break
+        finally:
+            stream.close()
+
+        if limit_exceeded:
+            stdout = b"".join(stdout_parts)
+            stderr = b"".join(stderr_parts)
+            self._kill_container()
+            raise SandboxOutputLimitExceeded(
+                f"Output limit of {limit} bytes exceeded",
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        exit_code = self.client.api.exec_inspect(exec_id)["ExitCode"]
+        return exit_code, _decode(b"".join(stdout_parts), limit), _decode(b"".join(stderr_parts), limit)
 
     def _memory_kb(self) -> int | None:
         if self.container is None:
@@ -164,18 +208,25 @@ class SandboxSession:
             return None
 
     def compile(self, code: str) -> tuple[bool, str, str]:
-        self._write_file(self.config.source_filename, code.encode("utf-8"))
-        if not self.config.compile_command:
-            return True, "", ""
+        try:
+            self._write_file(self.config.source_filename, code.encode("utf-8"))
+            if not self.config.compile_command:
+                return True, "", ""
 
-        timeout_s = settings.SANDBOX_COMPILE_TIMEOUT_S
-        command = [
-            "sh",
-            "-c",
-            f"timeout -s KILL {timeout_s}s {self.config.compile_command}",
-        ]
-        exit_code, stdout, stderr = self._exec(command, user="root")
-        return exit_code == 0, stdout, stderr
+            timeout_s = settings.SANDBOX_COMPILE_TIMEOUT_S
+            command = [
+                "sh",
+                "-c",
+                f"timeout -s KILL {timeout_s}s {self.config.compile_command}",
+            ]
+            exit_code, stdout, stderr = self._exec(command, user="root")
+            return exit_code == 0, stdout, stderr
+        except SandboxOutputLimitExceeded as exc:
+            limit = settings.SANDBOX_MAX_OUTPUT_BYTES
+            stdout = _decode(exc.stdout, limit)
+            stderr = _decode(exc.stderr, limit)
+            message = str(exc)
+            return False, stdout, f"{stderr}\n{message}".strip()
 
     def run_test(self, input_data: str) -> ExecutionResult:
         timeout_s = max(0.001, self.time_limit_ms / 1000)
