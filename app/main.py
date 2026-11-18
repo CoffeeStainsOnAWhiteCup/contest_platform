@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+
 from app.core.database import engine
-from app.models.models import Base 
+from app.models.models import Base
+from app.modules.submissions.router import router as submissions_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -10,7 +14,9 @@ async def lifespan(app: FastAPI):
     yield
     await engine.dispose()
 
+
 app = FastAPI(title="Contest Platform", lifespan=lifespan)
+app.include_router(submissions_router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
