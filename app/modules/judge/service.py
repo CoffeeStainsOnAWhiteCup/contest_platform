@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import SyncSessionLocal
 from app.models.models import (
+    Language,
     Problem,
     Submission,
     SubmissionStatus,
@@ -183,11 +184,9 @@ def _reset_for_retry(submission_id: uuid.UUID, message: str, *, expected_attempt
         session.commit()
 
 
-def judge_submission_sync(submission_id: uuid.UUID) -> None:
-    attempt = _claim_submission(submission_id)
-    if attempt is None:
-        return
-
+def _load_submission_for_judging(
+    submission_id: uuid.UUID,
+) -> tuple[list, Language, str, int, int] | None:
     with SyncSessionLocal() as session:
         submission = session.scalar(
             select(Submission)
@@ -195,29 +194,44 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
             .where(Submission.id == submission_id)
         )
         if submission is None:
-            return
+            return None
         tests = sorted(submission.problem.tests, key=lambda item: (item.ordinal, str(item.id)))
-        language = submission.language
-        code = submission.code
-        time_limit_ms = submission.problem.time_limit_ms
-        memory_limit_mb = submission.problem.memory_limit_mb
-
-    if not tests:
-        _finalize(
-            submission_id,
-            VerdictStatus.SYSTEM_ERROR,
-            expected_attempt=attempt,
-            total_tests=0,
-            message="Problem has no tests",
+        return (
+            tests,
+            submission.language,
+            submission.code,
+            submission.problem.time_limit_ms,
+            submission.problem.memory_limit_mb,
         )
+
+
+def judge_submission_sync(submission_id: uuid.UUID) -> None:
+    attempt = _claim_submission(submission_id)
+    if attempt is None:
         return
 
-    config = get_language_config(language)
-    test_results: list[dict] = []
-    runtime_output = ""
-    compile_output = ""
-
+    tests: list = []
     try:
+        loaded = _load_submission_for_judging(submission_id)
+        if loaded is None:
+            return
+        tests, language, code, time_limit_ms, memory_limit_mb = loaded
+
+        if not tests:
+            _finalize(
+                submission_id,
+                VerdictStatus.SYSTEM_ERROR,
+                expected_attempt=attempt,
+                total_tests=0,
+                message="Problem has no tests",
+            )
+            return
+
+        config = get_language_config(language)
+        test_results: list[dict] = []
+        runtime_output = ""
+        compile_output = ""
+
         with SandboxSession(submission_id, config, time_limit_ms, memory_limit_mb) as sandbox:
             compiled, compile_stdout, compile_stderr = sandbox.compile(code)
             compile_output = "\n".join(part for part in (compile_stdout, compile_stderr) if part).strip()

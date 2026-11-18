@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from app.models.models import (
@@ -378,6 +379,30 @@ async def test_old_attempt_cannot_overwrite_newer_attempt(db_session, participan
     assert verdict.status == VerdictStatus.ACCEPTED
     assert len(results) == 1
     assert results[0].status == VerdictStatus.ACCEPTED
+
+
+async def test_preflight_db_error_marks_system_error_for_attempt(
+    db_session, participant, monkeypatch
+):
+    submission, _ = await make_submission(db_session, participant)
+
+    def fail_load(submission_id):
+        raise OperationalError("select submission", {}, Exception("connection lost"))
+
+    monkeypatch.setattr(
+        "app.modules.judge.service._load_submission_for_judging",
+        fail_load,
+    )
+
+    judge_submission_sync(submission.id)
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.SYSTEM_ERROR
+    assert submission.judge_attempt == 1
+    assert submission.error_message.startswith("Judge error:")
+    assert "connection lost" in submission.error_message
+    assert verdict.status == VerdictStatus.SYSTEM_ERROR
+    assert results == []
 
 
 @pytest.fixture(autouse=True)
