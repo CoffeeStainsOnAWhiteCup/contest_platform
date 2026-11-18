@@ -38,47 +38,50 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _claim_submission(submission_id: uuid.UUID) -> bool:
+def _claim_submission(submission_id: uuid.UUID, *, only_stale: bool = False) -> int | None:
     now = _now()
     stale_before = now - timedelta(seconds=settings.JUDGE_STALE_TIMEOUT_S)
+    stale_running = and_(
+        Submission.status == SubmissionStatus.RUNNING,
+        or_(
+            Submission.judge_started_at.is_(None),
+            Submission.judge_started_at < stale_before,
+        ),
+    )
+    eligible = stale_running if only_stale else or_(
+        Submission.status == SubmissionStatus.PENDING,
+        stale_running,
+    )
+
     with SyncSessionLocal() as session:
-        claimed_id = session.execute(
+        claim_attempt = session.execute(
             update(Submission)
-            .where(
-                Submission.id == submission_id,
-                or_(
-                    Submission.status == SubmissionStatus.PENDING,
-                    and_(
-                        Submission.status == SubmissionStatus.RUNNING,
-                        or_(
-                            Submission.judge_started_at.is_(None),
-                            Submission.judge_started_at < stale_before,
-                        ),
-                    ),
-                ),
-            )
+            .where(Submission.id == submission_id, eligible)
             .values(
                 status=SubmissionStatus.RUNNING,
                 judge_started_at=now,
                 judge_attempt=Submission.judge_attempt + 1,
                 error_message=None,
             )
-            .returning(Submission.id)
+            .returning(Submission.judge_attempt)
         ).scalar_one_or_none()
         session.commit()
-        if claimed_id is not None:
-            return True
+        if claim_attempt is not None:
+            return int(claim_attempt)
+        if only_stale:
+            return None
         current_status = session.scalar(select(Submission.status).where(Submission.id == submission_id))
 
     if current_status == SubmissionStatus.RUNNING:
         raise JudgeBusy(f"Submission {submission_id} is already running")
-    return False
+    return None
 
 
 def _finalize(
     submission_id: uuid.UUID,
     status: VerdictStatus,
     *,
+    expected_attempt: int,
     time_ms: int | None = None,
     memory_kb: int | None = None,
     compile_output: str | None = None,
@@ -89,8 +92,26 @@ def _finalize(
     test_results: list[dict] | None = None,
 ) -> None:
     with SyncSessionLocal() as session:
-        submission = session.scalar(select(Submission).where(Submission.id == submission_id))
+        submission = session.scalar(
+            select(Submission)
+            .where(Submission.id == submission_id)
+            .with_for_update()
+        )
         if submission is None:
+            session.rollback()
+            return
+        if (
+            submission.judge_attempt != expected_attempt
+            or submission.status not in {SubmissionStatus.RUNNING, SubmissionStatus.PENDING}
+        ):
+            logger.warning(
+                "Ignoring judge result for submission %s: expected attempt %s, current attempt %s, status %s",
+                submission_id,
+                expected_attempt,
+                submission.judge_attempt,
+                submission.status,
+            )
+            session.rollback()
             return
 
         session.execute(delete(SubmissionTestResult).where(SubmissionTestResult.submission_id == submission_id))
@@ -120,27 +141,42 @@ def _finalize(
         session.commit()
 
 
-def mark_submission_system_error(submission_id: uuid.UUID, message: str) -> None:
+def mark_submission_system_error(
+    submission_id: uuid.UUID,
+    message: str,
+    *,
+    expected_attempt: int,
+) -> None:
     with SyncSessionLocal() as session:
-        submission = session.scalar(select(Submission).where(Submission.id == submission_id))
-        if submission is None:
+        total_tests = session.scalar(
+            select(Submission.total_tests).where(Submission.id == submission_id)
+        )
+        if total_tests is None:
             return
-        total_tests = submission.total_tests
     _finalize(
         submission_id,
         VerdictStatus.SYSTEM_ERROR,
+        expected_attempt=expected_attempt,
         total_tests=total_tests,
         message=message,
     )
 
 
-def _reset_for_retry(submission_id: uuid.UUID, message: str) -> None:
+def mark_stale_submission_system_error(submission_id: uuid.UUID, message: str) -> None:
+    attempt = _claim_submission(submission_id, only_stale=True)
+    if attempt is None:
+        return
+    mark_submission_system_error(submission_id, message, expected_attempt=attempt)
+
+
+def _reset_for_retry(submission_id: uuid.UUID, message: str, *, expected_attempt: int) -> None:
     with SyncSessionLocal() as session:
         session.execute(
             update(Submission)
             .where(
                 Submission.id == submission_id,
                 Submission.status == SubmissionStatus.RUNNING,
+                Submission.judge_attempt == expected_attempt,
             )
             .values(status=SubmissionStatus.PENDING, error_message=message)
         )
@@ -148,7 +184,8 @@ def _reset_for_retry(submission_id: uuid.UUID, message: str) -> None:
 
 
 def judge_submission_sync(submission_id: uuid.UUID) -> None:
-    if not _claim_submission(submission_id):
+    attempt = _claim_submission(submission_id)
+    if attempt is None:
         return
 
     with SyncSessionLocal() as session:
@@ -169,6 +206,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
         _finalize(
             submission_id,
             VerdictStatus.SYSTEM_ERROR,
+            expected_attempt=attempt,
             total_tests=0,
             message="Problem has no tests",
         )
@@ -187,6 +225,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
                 _finalize(
                     submission_id,
                     VerdictStatus.COMPILE_ERROR,
+                    expected_attempt=attempt,
                     compile_output=compile_output,
                     total_tests=len(tests),
                     message=compile_output or "Compilation failed",
@@ -218,6 +257,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
                     _finalize(
                         submission_id,
                         VerdictStatus.RUNTIME_ERROR,
+                        expected_attempt=attempt,
                         time_ms=max(time_values) if time_values else None,
                         memory_kb=max(memory_values) if memory_values else None,
                         compile_output=compile_output or None,
@@ -259,6 +299,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
             _finalize(
                 submission_id,
                 verdict,
+                expected_attempt=attempt,
                 time_ms=max(time_values) if time_values else None,
                 memory_kb=max(memory_values) if memory_values else None,
                 compile_output=compile_output or None,
@@ -270,13 +311,15 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
             )
     except SandboxUnavailable as exc:
         logger.warning("Sandbox unavailable for submission %s: %s", submission_id, exc)
-        _reset_for_retry(submission_id, str(exc))
+        _reset_for_retry(submission_id, str(exc), expected_attempt=attempt)
+        exc.attempt = attempt
         raise
     except Exception as exc:
         logger.exception("Unexpected judge error for submission %s", submission_id)
         _finalize(
             submission_id,
             VerdictStatus.SYSTEM_ERROR,
+            expected_attempt=attempt,
             total_tests=len(tests),
             message=f"Judge error: {exc}",
         )

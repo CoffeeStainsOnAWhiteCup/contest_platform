@@ -17,7 +17,14 @@ from app.modules.judge.sandbox.runner import (
     SandboxOutputLimitExceeded,
     SandboxUnavailable,
 )
-from app.modules.judge.service import JudgeBusy, judge_submission_sync
+from app.modules.judge.service import (
+    JudgeBusy,
+    _finalize,
+    _reset_for_retry,
+    judge_submission_sync,
+    mark_stale_submission_system_error,
+    mark_submission_system_error,
+)
 from tests.conftest import create_contest_and_problem
 
 
@@ -327,6 +334,50 @@ async def test_fresh_running_submission_is_not_reclaimed(db_session, participant
     assert submission.judge_attempt == 1
     assert verdict is None
     assert results == []
+
+
+async def test_old_attempt_cannot_overwrite_newer_attempt(db_session, participant):
+    submission, test_rows = await make_submission(db_session, participant)
+    submission.status = SubmissionStatus.RUNNING
+    submission.judge_attempt = 2
+    submission.judge_started_at = datetime.now(timezone.utc)
+    submission.total_tests = 1
+    submission.passed_tests = 1
+    db_session.add(Verdict(submission_id=submission.id, status=VerdictStatus.ACCEPTED))
+    db_session.add(
+        SubmissionTestResult(
+            submission_id=submission.id,
+            test_id=test_rows[0].id,
+            ordinal=1,
+            status=VerdictStatus.ACCEPTED,
+            time_ms=10,
+            memory_kb=1024,
+            exit_code=0,
+        )
+    )
+    await db_session.commit()
+
+    _finalize(
+        submission.id,
+        VerdictStatus.WRONG_ANSWER,
+        expected_attempt=1,
+        total_tests=1,
+        passed_tests=0,
+        message="stale result",
+    )
+    _reset_for_retry(submission.id, "stale reset", expected_attempt=1)
+    mark_submission_system_error(submission.id, "stale error", expected_attempt=1)
+    mark_stale_submission_system_error(submission.id, "stale recovery")
+
+    submission, verdict, results = await fetch_state(db_session, submission.id)
+    assert submission.status == SubmissionStatus.RUNNING
+    assert submission.judge_attempt == 2
+    assert submission.total_tests == 1
+    assert submission.passed_tests == 1
+    assert submission.error_message is None
+    assert verdict.status == VerdictStatus.ACCEPTED
+    assert len(results) == 1
+    assert results[0].status == VerdictStatus.ACCEPTED
 
 
 @pytest.fixture(autouse=True)
