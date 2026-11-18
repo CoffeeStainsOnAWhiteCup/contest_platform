@@ -17,7 +17,7 @@ def main():
         target = "tests/auth_integration"
     else:
         target = "tests/auth_unit"
-    raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", target, "-q", "-ra"]))
+    raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", target, "--confcutdir", target, "-q", "-ra"]))
 
 
 if __name__ == "__main__":

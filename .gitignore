@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 .coverage
 htmlcov/
+req.md
+spec.docx
+REPORT_JUDGE.md
