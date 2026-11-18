@@ -1,6 +1,9 @@
 .env
 __pycache__/
+.pytest_cache/
+.venv/
+.coverage
+htmlcov/
 req.md
 spec.docx
 REPORT_JUDGE.md
-

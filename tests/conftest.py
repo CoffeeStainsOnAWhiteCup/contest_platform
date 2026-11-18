@@ -30,6 +30,10 @@ from app.models.models import Base, Contest, ContestStatus, Problem, Test, User,
 
 
 async def _ensure_database() -> None:
+    if TEST_DB_NAME == _parsed.path.lstrip("/") or TEST_DB_NAME in {"postgres", "template0", "template1"}:
+        raise ValueError("Use a separate database for Judge tests")
+    if not TEST_DB_NAME.isidentifier():
+        raise ValueError("Invalid test database name")
     connection = await asyncpg.connect(
         user=_parsed.username,
         password=_parsed.password,
@@ -55,7 +59,7 @@ async def _prepare_schema() -> None:
         await engine.dispose()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def prepare_database():
     asyncio.run(_ensure_database())
     asyncio.run(_prepare_schema())
@@ -63,7 +67,7 @@ def prepare_database():
 
 
 @pytest_asyncio.fixture
-async def db_engine():
+async def db_engine(prepare_database):
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     yield engine
     await engine.dispose()

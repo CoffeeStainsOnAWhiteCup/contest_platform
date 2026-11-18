@@ -10,11 +10,18 @@ from app.models.models import (
     Verdict,
     VerdictStatus,
 )
+from app.modules.auth.security import create_access_token
 from tests.conftest import create_contest_and_problem, create_user
 
 
 def auth_headers(user) -> dict[str, str]:
-    return {"X-User-Id": str(user.id)}
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+
+async def test_legacy_user_header_cannot_authenticate(client, participant):
+    response = await client.get("/api/v1/submissions", headers={"X-User-Id": str(participant.id)})
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
 async def test_create_submission_returns_202(
