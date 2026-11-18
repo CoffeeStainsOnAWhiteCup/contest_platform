@@ -31,6 +31,7 @@ async def login(
     )
 
 
-@router.get("/me", response_model=UserRead)
+@router.get("/me", response_model=UserRead, deprecated=True)
 async def me(user: User = Depends(get_current_user)) -> User:
+    """Compatibility endpoint; use GET /api/v1/users/me for new clients."""
     return user

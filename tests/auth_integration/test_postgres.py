@@ -66,11 +66,14 @@ async def test_register_login_me_and_duplicate(postgres_api):
     assert duplicate.status_code == 409
     login = await client.post("/api/v1/auth/login", json=credentials)
     assert login.status_code == 200
-    me = await client.get("/api/v1/auth/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
+    me = await client.get("/api/v1/users/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
     assert me.status_code == 200
     assert me.json()["id"] == identity
     assert me.json()["role"] == "participant"
     assert "password_hash" not in me.json()
+    compatibility = await client.get("/api/v1/auth/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
+    assert compatibility.status_code == 200
+    assert compatibility.json() == me.json()
 
 
 async def test_two_users_receive_their_own_profile(postgres_api):
@@ -80,6 +83,6 @@ async def test_two_users_receive_their_own_profile(postgres_api):
         registered = await client.post("/api/v1/auth/register", json={**credentials, "name": name})
         assert registered.status_code == 201
         login = await client.post("/api/v1/auth/login", json=credentials)
-        me = await client.get("/api/v1/auth/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
+        me = await client.get("/api/v1/users/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
         assert me.status_code == 200
         assert me.json()["id"] == registered.json()["id"]

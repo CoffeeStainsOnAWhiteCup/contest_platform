@@ -19,6 +19,7 @@ from app.modules.auth.router import router
 from app.modules.auth.schemas import RegisterRequest
 from app.modules.auth.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.modules.auth.service import register_user
+from app.modules.users.router import router as users_router
 
 
 def user(role=UserRole.PARTICIPANT):
@@ -31,6 +32,7 @@ def api():
     db = AsyncMock(spec=AsyncSession)
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    app.include_router(users_router, prefix="/api/v1")
 
     async def override_db():
         yield db
@@ -92,35 +94,40 @@ def test_short_secret_rejected():
         Settings(JWT_SECRET_KEY="short")
 
 
-def test_me_missing_token_and_spoofed_header(api):
+@pytest.fixture(params=["/api/v1/users/me", "/api/v1/auth/me"])
+def profile_url(request):
+    return request.param
+
+
+def test_me_missing_token_and_spoofed_header(api, profile_url):
     client, db = api
-    response = client.get("/api/v1/auth/me", headers={"X-User-Id": str(uuid.uuid4())})
+    response = client.get(profile_url, headers={"X-User-Id": str(uuid.uuid4())})
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     db.get.assert_not_awaited()
 
 
 @pytest.mark.parametrize("header", ["Bearer invalid", "Basic abc", "Bearer"])
-def test_me_bad_credentials(api, header):
+def test_me_bad_credentials(api, header, profile_url):
     client, db = api
-    assert client.get("/api/v1/auth/me", headers={"Authorization": header}).status_code == 401
+    assert client.get(profile_url, headers={"Authorization": header}).status_code == 401
     db.get.assert_not_awaited()
 
 
-def test_me_reads_user_from_database(api):
+def test_me_reads_user_from_database(api, profile_url):
     client, db = api
     current = user()
     db.get.return_value = current
-    response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {create_access_token(current.id)}"})
+    response = client.get(profile_url, headers={"Authorization": f"Bearer {create_access_token(current.id)}"})
     assert response.status_code == 200
     assert response.json() == {"id": str(current.id), "email": current.email, "name": current.name, "role": "participant"}
     db.get.assert_awaited_once_with(User, current.id)
 
 
-def test_deleted_user_token_rejected(api):
+def test_deleted_user_token_rejected(api, profile_url):
     client, db = api
     db.get.return_value = None
-    assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {create_access_token(uuid.uuid4())}"}).status_code == 401
+    assert client.get(profile_url, headers={"Authorization": f"Bearer {create_access_token(uuid.uuid4())}"}).status_code == 401
 
 
 @pytest.mark.parametrize("role, expected", [(UserRole.PARTICIPANT, 403), (UserRole.JUDGE, 403), (UserRole.ADMIN, 200)])
@@ -152,12 +159,29 @@ def test_wrong_password_and_unknown_email_same_response(api, exists):
     assert response.json() == {"detail": "Invalid email or password"}
 
 
-@pytest.mark.parametrize("update", [{"role": "admin"}, {"password": "short"}, {"email": "bad"}, {"name": "   "}])
+@pytest.mark.parametrize("update", [
+    {"role": "admin"}, {"password": "short"}, {"email": "bad"}, {"name": "   "},
+    {"password": "abcdefgh"}, {"password": "12345678"}, {"password": "!!!!!!!!"},
+    {"password": "a" + "1" * 128},
+])
 def test_registration_validation(api, update):
     client, db = api
     payload = {"email": "student@example.com", "name": "Student", "password": "Password123!", **update}
     assert client.post("/api/v1/auth/register", json=payload).status_code == 422
     db.add.assert_not_called()
+
+
+@pytest.mark.parametrize("password", ["abcdefg1", "a" + "1" * 127, "Пароль123", "abc 1234"])
+def test_password_policy_accepts_valid_boundaries_and_preserves_value(password):
+    payload = RegisterRequest(email="student@example.com", name="Student", password=password)
+    assert payload.password.get_secret_value() == password
+
+
+def test_openapi_exposes_canonical_and_compatibility_profile_routes(api):
+    client, _ = api
+    paths = client.get("/openapi.json").json()["paths"]
+    assert paths["/api/v1/users/me"]["get"]["security"] == [{"HTTPBearer": []}]
+    assert paths["/api/v1/auth/me"]["get"]["deprecated"] is True
 
 
 def test_registration_success(api):
