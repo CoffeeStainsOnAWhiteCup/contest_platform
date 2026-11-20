@@ -104,6 +104,7 @@ class Problem(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     contest_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contests.id"), nullable=False, index=True)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     statement: Mapped[str] = mapped_column(Text, nullable=False)
 

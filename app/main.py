@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.core.database import engine
 from app.models.models import Base
 from app.modules.auth.router import router as auth_router
+from app.modules.contests.router import contests_router, problems_router
 from app.modules.submissions.router import router as submissions_router
 from app.modules.users.router import router as users_router
 
@@ -20,6 +21,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Contest Platform", lifespan=lifespan)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(contests_router, prefix="/api/v1")
+app.include_router(problems_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
 
 
