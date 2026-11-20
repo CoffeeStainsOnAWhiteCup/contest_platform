@@ -198,10 +198,11 @@ async def create_problem(
     db: AsyncSession, contest_id: uuid.UUID, payload: ProblemCreate
 ) -> ProblemDetail:
     contest = await _get_contest(db, contest_id)
+    contest_key = contest.id
     values = payload.model_dump()
     requested_ordinal = values.pop("ordinal")
     if requested_ordinal is not None and await repository.problem_ordinal_exists(
-        db, contest.id, requested_ordinal
+        db, contest_key, requested_ordinal
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -211,13 +212,13 @@ async def create_problem(
     for attempt in range(2):
         ordinal = requested_ordinal
         if ordinal is None:
-            ordinal = await repository.next_problem_ordinal(db, contest.id)
+            ordinal = await repository.next_problem_ordinal(db, contest_key)
         try:
             problem = await repository.create_problem(
                 db,
                 {
                     **values,
-                    "contest_id": contest.id,
+                    "contest_id": contest_key,
                     "ordinal": ordinal,
                 },
             )
@@ -303,10 +304,11 @@ async def create_test(
     db: AsyncSession, problem_id: uuid.UUID, payload: TestCreate
 ) -> TestRead:
     problem = await _get_problem(db, problem_id)
+    problem_key = problem.id
     values = payload.model_dump()
     requested_ordinal = values.pop("ordinal")
     if requested_ordinal is not None and await repository.test_ordinal_exists(
-        db, problem.id, requested_ordinal
+        db, problem_key, requested_ordinal
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -316,13 +318,13 @@ async def create_test(
     for attempt in range(2):
         ordinal = requested_ordinal
         if ordinal is None:
-            ordinal = await repository.next_test_ordinal(db, problem.id)
+            ordinal = await repository.next_test_ordinal(db, problem_key)
         try:
             test = await repository.create_test(
                 db,
                 {
                     **values,
-                    "problem_id": problem.id,
+                    "problem_id": problem_key,
                     "ordinal": ordinal,
                 },
             )
