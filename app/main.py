@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.database import engine
-from app.models.models import Base
 from app.modules.auth.router import router as auth_router
 from app.modules.contests.router import contests_router, problems_router
 from app.modules.submissions.router import router as submissions_router
@@ -12,8 +11,6 @@ from app.modules.users.router import router as users_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
     await engine.dispose()
 

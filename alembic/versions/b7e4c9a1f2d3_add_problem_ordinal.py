@@ -22,8 +22,46 @@ def upgrade() -> None:
         "problems",
         sa.Column("ordinal", sa.Integer(), nullable=False, server_default=sa.text("0")),
     )
+    op.execute(
+        """
+        WITH ranked AS (
+            SELECT
+                id,
+                row_number() OVER (PARTITION BY contest_id ORDER BY id) AS position
+            FROM problems
+        )
+        UPDATE problems
+        SET ordinal = ranked.position
+        FROM ranked
+        WHERE problems.id = ranked.id
+        """
+    )
     op.alter_column("problems", "ordinal", server_default=None)
+
+    op.execute(
+        """
+        WITH ranked AS (
+            SELECT
+                id,
+                row_number() OVER (PARTITION BY problem_id ORDER BY ordinal, id) AS position
+            FROM tests
+        )
+        UPDATE tests
+        SET ordinal = ranked.position
+        FROM ranked
+        WHERE tests.id = ranked.id
+        """
+    )
+
+    op.create_unique_constraint(
+        "uq_problems_contest_ordinal", "problems", ["contest_id", "ordinal"]
+    )
+    op.create_unique_constraint(
+        "uq_tests_problem_ordinal", "tests", ["problem_id", "ordinal"]
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint("uq_tests_problem_ordinal", "tests", type_="unique")
+    op.drop_constraint("uq_problems_contest_ordinal", "problems", type_="unique")
     op.drop_column("problems", "ordinal")

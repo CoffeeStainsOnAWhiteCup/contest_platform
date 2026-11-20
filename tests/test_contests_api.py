@@ -39,7 +39,7 @@ async def create_contest_row(
     return contest
 
 
-async def test_participant_sees_only_published_active_and_finished(
+async def test_participant_sees_only_published_and_active(
     client, db_session, participant
 ):
     for status in ContestStatus:
@@ -53,12 +53,37 @@ async def test_participant_sees_only_published_active_and_finished(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 3
+    assert body["total"] == 2
     assert {item["status"] for item in body["items"]} == {
         "published",
         "active",
-        "finished",
     }
+
+
+async def test_guest_can_list_and_open_published_active_contests(
+    client, db_session
+):
+    published = await create_contest_row(
+        db_session, status=ContestStatus.PUBLISHED, title="Public"
+    )
+    draft = await create_contest_row(
+        db_session, status=ContestStatus.DRAFT, title="Draft"
+    )
+    finished = await create_contest_row(
+        db_session, status=ContestStatus.FINISHED, title="Finished"
+    )
+
+    listed = await client.get("/api/v1/contests")
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["id"] == str(published.id)
+
+    detail = await client.get(f"/api/v1/contests/{published.id}")
+    assert detail.status_code == 200
+
+    for contest in (draft, finished):
+        hidden = await client.get(f"/api/v1/contests/{contest.id}")
+        assert hidden.status_code == 404
 
 
 async def test_admin_sees_all_contests_and_filters_by_status(
@@ -206,20 +231,25 @@ async def test_participant_cannot_open_draft_contest(
     assert admin_response.status_code == 200
 
 
-async def test_finished_contest_is_visible_but_read_only(
-    client, db_session, participant
+async def test_finished_contest_hidden_from_participant(
+    client, db_session, participant, admin_user
 ):
     contest = await create_contest_row(
         db_session, status=ContestStatus.FINISHED, title="Finished"
     )
 
-    response = await client.get(
+    participant_response = await client.get(
         f"/api/v1/contests/{contest.id}",
         headers=auth_headers(participant),
     )
+    assert participant_response.status_code == 404
 
-    assert response.status_code == 200
-    assert response.json()["can_submit"] is False
+    admin_response = await client.get(
+        f"/api/v1/contests/{contest.id}",
+        headers=auth_headers(admin_user),
+    )
+    assert admin_response.status_code == 200
+    assert admin_response.json()["can_submit"] is False
 
 
 async def test_contest_detail_includes_sorted_problems(

@@ -120,6 +120,22 @@ async def next_problem_ordinal(db: AsyncSession, contest_id: uuid.UUID) -> int:
     return int(current or 0) + 1
 
 
+async def problem_ordinal_exists(
+    db: AsyncSession,
+    contest_id: uuid.UUID,
+    ordinal: int,
+    *,
+    exclude_problem_id: uuid.UUID | None = None,
+) -> bool:
+    conditions = [Problem.contest_id == contest_id, Problem.ordinal == ordinal]
+    if exclude_problem_id is not None:
+        conditions.append(Problem.id != exclude_problem_id)
+    count = await db.scalar(
+        select(func.count()).select_from(Problem).where(*conditions)
+    )
+    return bool(count)
+
+
 async def create_problem(db: AsyncSession, values: dict) -> Problem:
     problem = Problem(**values)
     db.add(problem)
@@ -176,6 +192,22 @@ async def next_test_ordinal(db: AsyncSession, problem_id: uuid.UUID) -> int:
         select(func.max(Test.ordinal)).where(Test.problem_id == problem_id)
     )
     return int(current or 0) + 1
+
+
+async def test_ordinal_exists(
+    db: AsyncSession,
+    problem_id: uuid.UUID,
+    ordinal: int,
+    *,
+    exclude_test_id: uuid.UUID | None = None,
+) -> bool:
+    conditions = [Test.problem_id == problem_id, Test.ordinal == ordinal]
+    if exclude_test_id is not None:
+        conditions.append(Test.id != exclude_test_id)
+    count = await db.scalar(
+        select(func.count()).select_from(Test).where(*conditions)
+    )
+    return bool(count)
 
 
 async def create_test(db: AsyncSession, values: dict) -> Test:

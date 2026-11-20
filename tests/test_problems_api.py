@@ -131,6 +131,66 @@ async def test_participant_cannot_open_problem_in_draft_contest(
     assert admin_response.status_code == 200
 
 
+async def test_participant_cannot_open_problem_in_finished_contest(
+    client, db_session, participant, admin_user
+):
+    _, problem, _ = await create_contest_and_problem(
+        db_session, contest_status=ContestStatus.FINISHED
+    )
+
+    participant_response = await client.get(
+        f"/api/v1/problems/{problem.id}",
+        headers=auth_headers(participant),
+    )
+    assert participant_response.status_code == 404
+
+    admin_response = await client.get(
+        f"/api/v1/problems/{problem.id}",
+        headers=auth_headers(admin_user),
+    )
+    assert admin_response.status_code == 200
+
+
+async def test_duplicate_ordinals_conflict(client, admin_user):
+    contest = await create_contest(client, admin_user)
+    contest_id = contest["id"]
+    problem_payload = {
+        "title": "Duplicated problem",
+        "statement": "Statement",
+        "time_limit_ms": 1000,
+        "memory_limit_mb": 128,
+    }
+
+    first = await client.post(
+        f"/api/v1/contests/{contest_id}/problems",
+        headers=auth_headers(admin_user),
+        json={**problem_payload, "ordinal": 1},
+    )
+    assert first.status_code == 201
+
+    duplicate_problem = await client.post(
+        f"/api/v1/contests/{contest_id}/problems",
+        headers=auth_headers(admin_user),
+        json={**problem_payload, "title": "Duplicate", "ordinal": 1},
+    )
+    assert duplicate_problem.status_code == 409
+
+    problem_id = first.json()["id"]
+    first_test = await client.post(
+        f"/api/v1/problems/{problem_id}/tests",
+        headers=auth_headers(admin_user),
+        json={"input_data": "1", "expected_output": "2", "ordinal": 1},
+    )
+    assert first_test.status_code == 201
+
+    duplicate_test = await client.post(
+        f"/api/v1/problems/{problem_id}/tests",
+        headers=auth_headers(admin_user),
+        json={"input_data": "3", "expected_output": "4", "ordinal": 1},
+    )
+    assert duplicate_test.status_code == 409
+
+
 async def test_judge_updates_problem(client, db_session, judge_user):
     _, problem, _ = await create_contest_and_problem(db_session)
 

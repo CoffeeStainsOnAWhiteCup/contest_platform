@@ -7,7 +7,6 @@ PRIVILEGED_ROLES = {UserRole.ADMIN, UserRole.JUDGE}
 PARTICIPANT_VISIBLE_STATUSES = {
     ContestStatus.PUBLISHED,
     ContestStatus.ACTIVE,
-    ContestStatus.FINISHED,
 }
 
 
@@ -17,11 +16,11 @@ def as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def is_privileged(user: User) -> bool:
-    return user.role in PRIVILEGED_ROLES
+def is_privileged(user: User | None) -> bool:
+    return user is not None and user.role in PRIVILEGED_ROLES
 
 
-def can_view_contest(user: User, contest: Contest) -> bool:
+def can_view_contest(user: User | None, contest: Contest) -> bool:
     return is_privileged(user) or contest.status in PARTICIPANT_VISIBLE_STATUSES
 
 

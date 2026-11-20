@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import get_current_user, get_current_user_optional, require_roles
 from app.core.database import get_db
 from app.models.models import ContestStatus, User, UserRole
 from app.modules.contests import service
@@ -32,7 +32,7 @@ async def list_contests(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> ContestListResponse:
     return await service.list_contests(
         db,
@@ -58,7 +58,7 @@ async def create_contest(
 async def get_contest(
     contest_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ) -> ContestDetail:
     return await service.get_contest(db, current_user, contest_id)
 

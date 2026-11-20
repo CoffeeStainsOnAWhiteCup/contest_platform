@@ -101,6 +101,9 @@ class Contest(Base):
 
 class Problem(Base):
     __tablename__ = "problems"
+    __table_args__ = (
+        UniqueConstraint("contest_id", "ordinal", name="uq_problems_contest_ordinal"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     contest_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contests.id"), nullable=False, index=True)
@@ -118,6 +121,9 @@ class Problem(Base):
 
 class Test(Base):
     __tablename__ = "tests"
+    __table_args__ = (
+        UniqueConstraint("problem_id", "ordinal", name="uq_tests_problem_ordinal"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     problem_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("problems.id"), nullable=False, index=True)

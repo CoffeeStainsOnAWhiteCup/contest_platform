@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Contest, ContestStatus, Problem, Test, User
@@ -68,7 +69,7 @@ async def _get_contest(db: AsyncSession, contest_id: uuid.UUID) -> Contest:
 
 
 async def _get_visible_contest(
-    db: AsyncSession, user: User, contest_id: uuid.UUID
+    db: AsyncSession, user: User | None, contest_id: uuid.UUID
 ) -> Contest:
     contest = await _get_contest(db, contest_id)
     if not can_view_contest(user, contest):
@@ -113,7 +114,7 @@ async def _get_visible_problem(
 
 async def list_contests(
     db: AsyncSession,
-    user: User,
+    user: User | None,
     *,
     status_filter: ContestStatus | None,
     page: int,
@@ -138,7 +139,7 @@ async def list_contests(
 
 
 async def get_contest(
-    db: AsyncSession, user: User, contest_id: uuid.UUID
+    db: AsyncSession, user: User | None, contest_id: uuid.UUID
 ) -> ContestDetail:
     contest = await repository.get_contest(db, contest_id, with_problems=True)
     if contest is None or not can_view_contest(user, contest):
@@ -198,18 +199,41 @@ async def create_problem(
 ) -> ProblemDetail:
     contest = await _get_contest(db, contest_id)
     values = payload.model_dump()
-    ordinal = values.pop("ordinal")
-    if ordinal is None:
-        ordinal = await repository.next_problem_ordinal(db, contest.id)
-    problem = await repository.create_problem(
-        db,
-        {
-            **values,
-            "contest_id": contest.id,
-            "ordinal": ordinal,
-        },
+    requested_ordinal = values.pop("ordinal")
+    if requested_ordinal is not None and await repository.problem_ordinal_exists(
+        db, contest.id, requested_ordinal
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Problem ordinal already exists in this contest",
+        )
+
+    for attempt in range(2):
+        ordinal = requested_ordinal
+        if ordinal is None:
+            ordinal = await repository.next_problem_ordinal(db, contest.id)
+        try:
+            problem = await repository.create_problem(
+                db,
+                {
+                    **values,
+                    "contest_id": contest.id,
+                    "ordinal": ordinal,
+                },
+            )
+            return _problem_detail(problem, [])
+        except IntegrityError:
+            await db.rollback()
+            if requested_ordinal is not None or attempt == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Problem ordinal already exists in this contest",
+                ) from None
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Problem ordinal already exists in this contest",
     )
-    return _problem_detail(problem, [])
 
 
 async def get_problem(
@@ -228,7 +252,26 @@ async def update_problem(
         tests = await repository.list_tests(db, problem.id)
         return _problem_detail(problem, tests)
 
-    await repository.update_problem(db, problem, values)
+    if "ordinal" in values and await repository.problem_ordinal_exists(
+        db,
+        problem.contest_id,
+        values["ordinal"],
+        exclude_problem_id=problem.id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Problem ordinal already exists in this contest",
+        )
+
+    try:
+        await repository.update_problem(db, problem, values)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Problem ordinal already exists in this contest",
+        ) from None
+
     updated = await _get_problem(
         db, problem_id, with_contest=True, with_tests=True
     )
@@ -261,18 +304,41 @@ async def create_test(
 ) -> TestRead:
     problem = await _get_problem(db, problem_id)
     values = payload.model_dump()
-    ordinal = values.pop("ordinal")
-    if ordinal is None:
-        ordinal = await repository.next_test_ordinal(db, problem.id)
-    test = await repository.create_test(
-        db,
-        {
-            **values,
-            "problem_id": problem.id,
-            "ordinal": ordinal,
-        },
+    requested_ordinal = values.pop("ordinal")
+    if requested_ordinal is not None and await repository.test_ordinal_exists(
+        db, problem.id, requested_ordinal
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Test ordinal already exists in this problem",
+        )
+
+    for attempt in range(2):
+        ordinal = requested_ordinal
+        if ordinal is None:
+            ordinal = await repository.next_test_ordinal(db, problem.id)
+        try:
+            test = await repository.create_test(
+                db,
+                {
+                    **values,
+                    "problem_id": problem.id,
+                    "ordinal": ordinal,
+                },
+            )
+            return TestRead.model_validate(test)
+        except IntegrityError:
+            await db.rollback()
+            if requested_ordinal is not None or attempt == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Test ordinal already exists in this problem",
+                ) from None
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Test ordinal already exists in this problem",
     )
-    return TestRead.model_validate(test)
 
 
 async def update_test(
@@ -288,8 +354,28 @@ async def update_test(
             status_code=status.HTTP_404_NOT_FOUND, detail="Test not found"
         )
     values = payload.model_dump(exclude_unset=True)
-    if values:
+    if not values:
+        return TestRead.model_validate(test)
+
+    if "ordinal" in values and await repository.test_ordinal_exists(
+        db,
+        test.problem_id,
+        values["ordinal"],
+        exclude_test_id=test.id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Test ordinal already exists in this problem",
+        )
+
+    try:
         test = await repository.update_test(db, test, values)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Test ordinal already exists in this problem",
+        ) from None
     return TestRead.model_validate(test)
 
 
