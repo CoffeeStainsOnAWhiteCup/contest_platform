@@ -26,30 +26,119 @@ def upgrade() -> None:
 
     op.execute(
         """
-        WITH ranked AS (
-            SELECT
-                id,
-                row_number() OVER (PARTITION BY contest_id ORDER BY id) AS position
-            FROM problems
-        )
-        UPDATE problems
-        SET ordinal = ranked.position
-        FROM ranked
-        WHERE problems.id = ranked.id
+        DO $$
+        DECLARE
+            parent_contest RECORD;
+            problem RECORD;
+            reserved INTEGER[];
+            candidate INTEGER;
+        BEGIN
+            FOR parent_contest IN
+                SELECT DISTINCT contest_id FROM problems
+            LOOP
+                reserved := ARRAY(
+                    SELECT ordinal
+                    FROM (
+                        SELECT
+                            ordinal,
+                            count(*) OVER (PARTITION BY ordinal) AS value_count,
+                            row_number() OVER (
+                                PARTITION BY ordinal ORDER BY id
+                            ) AS value_rank
+                        FROM problems
+                        WHERE contest_id = parent_contest.contest_id
+                          AND ordinal > 0
+                    ) ranked_positive
+                    WHERE value_count = 1 OR value_rank = 1
+                );
+
+                FOR problem IN
+                    SELECT
+                        id,
+                        CASE
+                            WHEN ordinal <= 0 THEN true
+                            WHEN count(*) OVER (PARTITION BY ordinal) > 1
+                                 AND row_number() OVER (
+                                     PARTITION BY ordinal ORDER BY id
+                                 ) > 1 THEN true
+                            ELSE false
+                        END AS needs_number
+                    FROM problems
+                    WHERE contest_id = parent_contest.contest_id
+                    ORDER BY id
+                LOOP
+                    IF NOT problem.needs_number THEN
+                        CONTINUE;
+                    END IF;
+
+                    candidate := 1;
+                    WHILE candidate = ANY(reserved) LOOP
+                        candidate := candidate + 1;
+                    END LOOP;
+                    UPDATE problems SET ordinal = candidate WHERE id = problem.id;
+                    reserved := array_append(reserved, candidate);
+                END LOOP;
+            END LOOP;
+        END $$;
         """
     )
+
     op.execute(
         """
-        WITH ranked AS (
-            SELECT
-                id,
-                row_number() OVER (PARTITION BY problem_id ORDER BY ordinal, id) AS position
-            FROM tests
-        )
-        UPDATE tests
-        SET ordinal = ranked.position
-        FROM ranked
-        WHERE tests.id = ranked.id
+        DO $$
+        DECLARE
+            parent_problem RECORD;
+            test RECORD;
+            reserved INTEGER[];
+            candidate INTEGER;
+        BEGIN
+            FOR parent_problem IN
+                SELECT DISTINCT problem_id FROM tests
+            LOOP
+                reserved := ARRAY(
+                    SELECT ordinal
+                    FROM (
+                        SELECT
+                            ordinal,
+                            count(*) OVER (PARTITION BY ordinal) AS value_count,
+                            row_number() OVER (
+                                PARTITION BY ordinal ORDER BY id
+                            ) AS value_rank
+                        FROM tests
+                        WHERE problem_id = parent_problem.problem_id
+                          AND ordinal > 0
+                    ) ranked_positive
+                    WHERE value_count = 1 OR value_rank = 1
+                );
+
+                FOR test IN
+                    SELECT
+                        id,
+                        CASE
+                            WHEN ordinal <= 0 THEN true
+                            WHEN count(*) OVER (PARTITION BY ordinal) > 1
+                                 AND row_number() OVER (
+                                     PARTITION BY ordinal ORDER BY id
+                                 ) > 1 THEN true
+                            ELSE false
+                        END AS needs_number
+                    FROM tests
+                    WHERE problem_id = parent_problem.problem_id
+                    ORDER BY id
+                LOOP
+                    IF NOT test.needs_number THEN
+                        CONTINUE;
+                    END IF;
+
+                    candidate := 1;
+                    WHILE candidate = ANY(reserved) LOOP
+                        candidate := candidate + 1;
+                    END LOOP;
+                    UPDATE tests SET ordinal = candidate WHERE id = test.id;
+                    reserved := array_append(reserved, candidate);
+                END LOOP;
+            END LOOP;
+        END $$;
         """
     )
 

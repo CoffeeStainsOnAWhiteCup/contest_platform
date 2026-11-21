@@ -68,14 +68,14 @@ def _run_alembic(*args: str) -> None:
     )
 
 
-def _insert_contest(connection, contest_id: uuid.UUID) -> None:
+def _insert_contest(connection, contest_id: uuid.UUID, title: str) -> None:
     connection.execute(
         """
         INSERT INTO contests
             (id, title, description, start_at, end_at, status, created_at)
         VALUES (%s, %s, NULL, now(), now(), 'DRAFT', now())
         """,
-        (contest_id, "migration contest"),
+        (contest_id, title),
     )
 
 
@@ -98,12 +98,7 @@ def _insert_problem(
     )
 
 
-def _insert_test(
-    connection,
-    problem_id: uuid.UUID,
-    *,
-    ordinal: int,
-) -> None:
+def _insert_test(connection, problem_id: uuid.UUID, ordinal: int) -> None:
     connection.execute(
         """
         INSERT INTO tests
@@ -112,6 +107,20 @@ def _insert_test(
         """,
         (uuid.uuid4(), problem_id, ordinal),
     )
+
+
+def _ordinals_by_id(table: str, parent_column: str, parent_id: uuid.UUID) -> dict:
+    with psycopg.connect(_sync_url()) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT id, ordinal
+            FROM {table}
+            WHERE {parent_column} = %s
+            ORDER BY id
+            """,
+            (parent_id,),
+        ).fetchall()
+    return {row[0]: row[1] for row in rows}
 
 
 def _constraint_names() -> set[str]:
@@ -126,28 +135,32 @@ def _constraint_names() -> set[str]:
     return {row[0] for row in rows}
 
 
+def _assert_ordinals(table, parent_column, parent_id, expected):
+    assert _ordinals_by_id(table, parent_column, parent_id) == expected
+
+
 def test_problem_ordinals_are_backfilled_from_initial_revision():
     asyncio.run(_create_database())
     try:
         _run_alembic("upgrade", "6d233f26b0ba")
 
         contest_id = uuid.uuid4()
-        problem_ids = [uuid.uuid4(), uuid.uuid4()]
+        first_problem = uuid.uuid4()
+        second_problem = uuid.uuid4()
         with psycopg.connect(_sync_url()) as connection:
-            _insert_contest(connection, contest_id)
-            for problem_id in problem_ids:
-                _insert_problem(connection, problem_id, contest_id)
+            _insert_contest(connection, contest_id, "migration contest")
+            _insert_problem(connection, first_problem, contest_id)
+            _insert_problem(connection, second_problem, contest_id)
             connection.commit()
 
         _run_alembic("upgrade", "head")
 
-        with psycopg.connect(_sync_url()) as connection:
-            rows = connection.execute(
-                "SELECT ordinal FROM problems WHERE contest_id = %s ORDER BY ordinal",
-                (contest_id,),
-            ).fetchall()
-
-        assert [row[0] for row in rows] == [1, 2]
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            contest_id,
+            {first_problem: 1, second_problem: 2},
+        )
         assert _constraint_names() == {
             "uq_problems_contest_ordinal",
             "uq_tests_problem_ordinal",
@@ -156,35 +169,102 @@ def test_problem_ordinals_are_backfilled_from_initial_revision():
         asyncio.run(_drop_database())
 
 
-def test_ordinals_are_reindexed_from_previous_revision():
+def test_ordinals_preserve_existing_values_and_resolve_conflicts():
     asyncio.run(_create_database())
     try:
         _run_alembic("upgrade", "b7e4c9a1f2d3")
 
-        contest_id = uuid.uuid4()
-        problem_ids = [uuid.uuid4(), uuid.uuid4()]
+        preserve_contest = uuid.uuid4()
+        preserved_first_id = uuid.UUID(int=1)
+        preserved_second_id = uuid.UUID(int=2)
+        zeros_contest = uuid.uuid4()
+        first_zero = uuid.UUID(int=3)
+        second_zero = uuid.UUID(int=4)
+        duplicates_contest = uuid.uuid4()
+        first_duplicate = uuid.UUID(int=5)
+        second_duplicate = uuid.UUID(int=6)
+        gap_contest = uuid.uuid4()
+        gap_start = uuid.UUID(int=7)
+        gap_end = uuid.UUID(int=8)
+        mixed_contest = uuid.uuid4()
+        mixed_zero = uuid.UUID(int=9)
+        mixed_duplicate_first = uuid.UUID(int=10)
+        mixed_duplicate_second = uuid.UUID(int=11)
+
         with psycopg.connect(_sync_url()) as connection:
-            _insert_contest(connection, contest_id)
-            for problem_id in problem_ids:
-                _insert_problem(connection, problem_id, contest_id, ordinal=0)
-            _insert_test(connection, problem_ids[0], ordinal=0)
-            _insert_test(connection, problem_ids[0], ordinal=0)
+            _insert_contest(connection, preserve_contest, "preserve")
+            _insert_problem(connection, preserved_first_id, preserve_contest, ordinal=2)
+            _insert_problem(connection, preserved_second_id, preserve_contest, ordinal=1)
+
+            _insert_contest(connection, zeros_contest, "zeros")
+            _insert_problem(connection, first_zero, zeros_contest, ordinal=0)
+            _insert_problem(connection, second_zero, zeros_contest, ordinal=0)
+
+            _insert_contest(connection, duplicates_contest, "duplicates")
+            _insert_problem(connection, first_duplicate, duplicates_contest, ordinal=1)
+            _insert_problem(connection, second_duplicate, duplicates_contest, ordinal=1)
+
+            _insert_contest(connection, gap_contest, "gap")
+            _insert_problem(connection, gap_start, gap_contest, ordinal=0)
+            _insert_problem(connection, gap_end, gap_contest, ordinal=5)
+
+            _insert_contest(connection, mixed_contest, "mixed")
+            _insert_problem(connection, mixed_zero, mixed_contest, ordinal=0)
+            _insert_problem(
+                connection, mixed_duplicate_first, mixed_contest, ordinal=1
+            )
+            _insert_problem(
+                connection, mixed_duplicate_second, mixed_contest, ordinal=1
+            )
+
+            _insert_test(connection, preserved_first_id, 1)
+            _insert_test(connection, preserved_first_id, 5)
+            _insert_test(connection, preserved_second_id, 0)
+            _insert_test(connection, preserved_second_id, 0)
             connection.commit()
 
         _run_alembic("upgrade", "head")
 
-        with psycopg.connect(_sync_url()) as connection:
-            problem_rows = connection.execute(
-                "SELECT ordinal FROM problems WHERE contest_id = %s ORDER BY ordinal",
-                (contest_id,),
-            ).fetchall()
-            test_rows = connection.execute(
-                "SELECT ordinal FROM tests WHERE problem_id = %s ORDER BY ordinal",
-                (problem_ids[0],),
-            ).fetchall()
-
-        assert [row[0] for row in problem_rows] == [1, 2]
-        assert [row[0] for row in test_rows] == [1, 2]
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            preserve_contest,
+            {preserved_first_id: 2, preserved_second_id: 1},
+        )
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            zeros_contest,
+            {first_zero: 1, second_zero: 2},
+        )
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            duplicates_contest,
+            {first_duplicate: 1, second_duplicate: 2},
+        )
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            gap_contest,
+            {gap_start: 1, gap_end: 5},
+        )
+        _assert_ordinals(
+            "problems",
+            "contest_id",
+            mixed_contest,
+            {
+                mixed_zero: 2,
+                mixed_duplicate_first: 1,
+                mixed_duplicate_second: 3,
+            },
+        )
+        assert sorted(
+            _ordinals_by_id("tests", "problem_id", preserved_first_id).values()
+        ) == [1, 5]
+        assert sorted(
+            _ordinals_by_id("tests", "problem_id", preserved_second_id).values()
+        ) == [1, 2]
         assert _constraint_names() == {
             "uq_problems_contest_ordinal",
             "uq_tests_problem_ordinal",
