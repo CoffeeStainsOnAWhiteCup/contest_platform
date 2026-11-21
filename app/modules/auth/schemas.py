@@ -55,6 +55,11 @@ class UserRead(BaseModel):
 
 
 class TokenResponse(BaseModel):
+    refresh_token: str
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: SecretStr = Field(min_length=1, max_length=128)

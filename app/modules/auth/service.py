@@ -47,8 +47,9 @@ async def register_user(db: AsyncSession, payload: RegisterRequest) -> User:
 
 async def authenticate_user(db: AsyncSession, payload: LoginRequest) -> User:
     user = await get_user_by_email(db, str(payload.email))
-    password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+    password_login = user is not None and user.password_hash != "!github"
+    password_hash = user.password_hash if password_login else DUMMY_PASSWORD_HASH
     valid = await run_in_threadpool(verify_password, payload.password.get_secret_value(), password_hash)
-    if user is None or not valid:
+    if user is None or not password_login or not valid:
         raise invalid_credentials()
     return user

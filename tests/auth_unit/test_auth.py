@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import jwt
 import pytest
@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_roles
 from app.core.config import Settings, settings
 from app.core.database import get_db
+from app.core.rate_limit import get_redis, limit_ip
 from app.models.models import User, UserRole
 from app.modules.auth.router import router
 from app.modules.auth.schemas import RegisterRequest
@@ -37,6 +38,12 @@ def api():
     async def override_db():
         yield db
 
+    redis = MagicMock()
+    pipe = MagicMock()
+    redis.pipeline.return_value.__aenter__.return_value = pipe
+    pipe.execute = AsyncMock()
+    app.dependency_overrides[get_redis] = lambda: redis
+    app.dependency_overrides[limit_ip] = lambda: None
     app.dependency_overrides[get_db] = override_db
 
     @app.get("/admin-only")

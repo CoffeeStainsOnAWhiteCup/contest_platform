@@ -93,7 +93,7 @@ async def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=app, client=(f"test-{uuid.uuid4().hex}", 12345))
     async with AsyncClient(transport=transport, base_url="http://test") as http_client:
         yield http_client
     app.dependency_overrides.clear()

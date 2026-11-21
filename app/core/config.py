@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +25,22 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_MINUTES: int = Field(default=30, ge=1, le=1440)
     JWT_ISSUER: str = "contest-platform"
     JWT_AUDIENCE: str = "contest-platform-api"
+
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: SecretStr | None = None
+    GITHUB_CALLBACK_URL: str = "http://localhost:8000/api/v1/auth/github/callback"
+    GITHUB_FRONTEND_URL: str = "http://localhost:5173/auth/callback"
+
+    @field_validator("GITHUB_CALLBACK_URL", "GITHUB_FRONTEND_URL")
+    @classmethod
+    def validate_oauth_url(cls, value: str) -> str:
+        parts = urlsplit(value)
+        local = parts.hostname in {"localhost", "127.0.0.1", "::1"}
+        if not parts.hostname or parts.username is not None or parts.query or parts.fragment:
+            raise ValueError("Use an absolute OAuth URL without credentials, query or fragment")
+        if parts.scheme != "https" and not (parts.scheme == "http" and local):
+            raise ValueError("OAuth URLs require HTTPS outside localhost")
+        return value
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod

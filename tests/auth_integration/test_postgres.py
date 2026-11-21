@@ -42,7 +42,7 @@ async def postgres_api():
                 yield session
 
         app.dependency_overrides[get_db] = override_db
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(transport=ASGITransport(app=app, client=(f"test-{uuid.uuid4().hex}", 12345)), base_url="http://test") as client:
             yield client, factory
     finally:
         app.dependency_overrides.pop(get_db, None)
