@@ -1,10 +1,10 @@
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import ContestStatus, Submission, SubmissionStatus, User, UserRole
+from app.models.models import Submission, SubmissionStatus, User, UserRole
+from app.modules.contests.policy import submission_denial_reason
 from app.modules.judge.tasks import judge_submission
 from app.modules.submissions import repository
 from app.modules.submissions.schemas import (
@@ -19,12 +19,6 @@ PRIVILEGED_ROLES = {UserRole.JUDGE, UserRole.ADMIN}
 
 def _is_privileged(user: User) -> bool:
     return user.role in PRIVILEGED_ROLES
-
-
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 async def _enqueue(db: AsyncSession, submission: Submission) -> None:
@@ -51,17 +45,11 @@ async def create_submission(
     if problem is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Problem not found")
 
-    contest = problem.contest
-    now = datetime.now(timezone.utc)
-    start_at = _as_utc(contest.start_at)
-    end_at = _as_utc(contest.end_at)
-
-    if contest.status not in {ContestStatus.PUBLISHED, ContestStatus.ACTIVE}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contest is not open")
-    if now < start_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contest has not started")
-    if now > end_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contest has finished")
+    denial_reason = submission_denial_reason(problem.contest)
+    if denial_reason is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=denial_reason
+        )
 
     submission = await repository.create_submission(
         db,

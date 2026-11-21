@@ -57,6 +57,23 @@ async def test_create_submission_rejects_closed_contest(
     assert fake_judge_task.calls == []
 
 
+async def test_create_submission_rejects_published_contest(
+    client, db_session, participant, fake_judge_task
+):
+    _, problem, _ = await create_contest_and_problem(
+        db_session, contest_status=ContestStatus.PUBLISHED
+    )
+
+    response = await client.post(
+        "/api/v1/submissions",
+        headers=auth_headers(participant),
+        json={"problem_id": str(problem.id), "language": "python", "code": "print(1)"},
+    )
+
+    assert response.status_code == 400
+    assert fake_judge_task.calls == []
+
+
 async def test_create_submission_rejects_unknown_problem(
     client, participant, fake_judge_task
 ):
