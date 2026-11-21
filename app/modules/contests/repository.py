@@ -13,6 +13,7 @@ from app.models.models import (
     SubmissionTestResult,
     Test,
 )
+from app.modules.notifications.events import CONTEST_EVENTS
 
 
 async def list_contests(
@@ -65,8 +66,15 @@ async def create_contest(db: AsyncSession, values: dict) -> Contest:
 async def update_contest(
     db: AsyncSession, contest: Contest, values: dict
 ) -> Contest:
+    archiving_public_contest = (
+        values.get("status") == ContestStatus.ARCHIVED
+        and contest.status in (ContestStatus.PUBLISHED, ContestStatus.ACTIVE, ContestStatus.FINISHED)
+    )
     for field, value in values.items():
         setattr(contest, field, value)
+    if archiving_public_contest:
+        await db.flush()
+        await db.execute(CONTEST_EVENTS, {"archived_id": contest.id})
     await db.commit()
     await db.refresh(contest)
     return contest

@@ -28,7 +28,7 @@ from app.modules.judge.sandbox.verdicts import (
     status_for_test,
     submission_status_for_verdict,
 )
-from app.modules.notifications.tasks import enqueue_verdict
+from app.modules.notifications.events import enqueue_verdict
 from app.modules.rating.service import revision_update
 
 logger = logging.getLogger(__name__)

@@ -4,44 +4,16 @@ import logging
 from datetime import timedelta
 
 import requests
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery
 from app.core.config import settings
 from app.core.database import SyncSessionLocal
-from app.models.models import Notification, Submission, User, VerdictStatus, utcnow
+from app.models.models import Notification, User, utcnow
+from app.modules.notifications.events import CONTEST_EVENTS
 
 logger = logging.getLogger(__name__)
-
-
-def enqueue_verdict(db: Session, submission: Submission, status: VerdictStatus) -> None:
-    user = db.get(User, submission.user_id)
-    if user and user.telegram_chat_id and not user.is_blocked:
-        db.add(
-            Notification(
-                user_id=user.id,
-                chat_id=user.telegram_chat_id,
-                event_key=f"verdict:{submission.id}:{submission.judge_attempt}",
-                message=f"Ваше решение задачи «{submission.problem.title}» получило вердикт: {status.value}.",
-            )
-        )
-
-
-# A repeated scheduler tick inserts only previously unseen events. Users who link
-# later don't receive old announcements. A later tick catches missed events.
-CONTEST_EVENTS = text("""
-    INSERT INTO notifications (user_id, chat_id, event_key, message, status, attempts, available_at)
-    SELECT u.id, u.telegram_chat_id, 'contest:' || c.id || ':' || e.kind,
-           'Контест «' || c.title || '» ' || e.label, 'pending', 0, now()
-    FROM contests c
-    CROSS JOIN LATERAL (VALUES ('start', c.start_at, 'начался.'),
-                               ('end', c.end_at, 'завершён.')) e(kind, due, label)
-    JOIN users u ON u.telegram_chat_id IS NOT NULL AND NOT u.is_blocked
-                AND coalesce(u.telegram_linked_at, u.created_at) <= e.due
-    WHERE c.status IN ('PUBLISHED','ACTIVE','FINISHED') AND e.due <= now()
-    ON CONFLICT (user_id, event_key) DO NOTHING
-""")
 
 
 def send_one(db: Session, item: Notification, token: str) -> None:

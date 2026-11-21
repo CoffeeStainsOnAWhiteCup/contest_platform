@@ -8,11 +8,11 @@ from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
-from app.models.models import Notification, utcnow
+from app.models.models import ContestStatus, Notification, Submission, SubmissionStatus, Verdict, utcnow
 from app.modules.auth.security import create_access_token
 from app.modules.notifications.router import link_key
 from app.modules.notifications.tasks import dispatch
-from tests.conftest import create_contest_and_problem
+from tests.conftest import auth_headers, create_contest_and_problem
 
 
 @pytest.fixture
@@ -85,6 +85,78 @@ async def test_contest_events_delivered_once(db_session, participant, bot, monke
     )
     records = (await db_session.scalars(select(Notification))).all()
     assert all(item.delivered_at and item.status == "sent" for item in records)
+
+
+async def test_archive_preserves_due_end_once(client, db_session, admin_user, participant, bot, monkeypatch):
+    participant.telegram_chat_id = "123"
+    participant.telegram_linked_at = utcnow() - timedelta(days=1)
+    contest, _, _ = await create_contest_and_problem(db_session)
+    draft, _, _ = await create_contest_and_problem(db_session, contest_status=ContestStatus.DRAFT)
+    sent = []
+
+    def send(url, *, json, **kwargs):
+        sent.append(json["text"])
+        return Reply(200)
+
+    monkeypatch.setattr("app.modules.notifications.tasks.requests.post", send)
+    await run_in_threadpool(dispatch.run)
+    assert sent == [f"Контест «{contest.title}» начался."]
+    patch = {"end_at": utcnow().isoformat(), "status": "archived"}
+    for target in (contest, draft, contest):
+        response = await client.patch(
+            f"/api/v1/contests/{target.id}", json=patch, headers=auth_headers(admin_user)
+        )
+        assert response.status_code == 200
+    for _ in range(2):
+        await run_in_threadpool(dispatch.run)
+    assert sent == [f"Контест «{contest.title}» начался.", f"Контест «{contest.title}» завершён."]
+    keys = set(await db_session.scalars(select(Notification.event_key)))
+    assert keys == {f"contest:{contest.id}:start", f"contest:{contest.id}:end"}
+
+
+async def test_queue_outage_notifies_each_failed_attempt(client, db_session, participant, judge_user, monkeypatch):
+    participant.telegram_chat_id = "123"
+    _, problem, _ = await create_contest_and_problem(db_session)
+
+    def unavailable(submission_id):
+        raise ConnectionError("broker unavailable")
+
+    monkeypatch.setattr("app.modules.submissions.service.judge_submission.delay", unavailable)
+    url = "/api/v1/submissions"
+    response = await client.post(url, headers=auth_headers(participant), json={
+        "problem_id": str(problem.id), "language": "python", "code": "print(1)",
+    })
+    assert response.status_code == 503
+    submission = (await db_session.scalars(select(Submission))).one()
+    assert submission.status == SubmissionStatus.SYSTEM_ERROR
+    response = await client.post(f"{url}/{submission.id}/rejudge", headers=auth_headers(judge_user))
+    assert response.status_code == 503
+    result = await client.get(f"{url}/{submission.id}", headers=auth_headers(participant))
+    assert result.json()["verdict"]["status"] == "SYSTEM_ERROR"
+    assert len((await db_session.scalars(select(Verdict))).all()) == 1
+    messages = (await db_session.scalars(select(Notification))).all()
+    assert len({item.event_key for item in messages}) == len(messages) == 2
+    assert all(item.status == "pending" and item.chat_id == "123" and "SYSTEM_ERROR" in item.message
+               for item in messages)
+
+
+async def test_lost_broker_ack_preserves_worker_claim(client, db_session, participant, monkeypatch):
+    from app.modules.judge.service import _claim_submission
+
+    participant.telegram_chat_id = "123"
+    _, problem, _ = await create_contest_and_problem(db_session)
+
+    def lost_ack(submission_id):
+        assert _claim_submission(uuid.UUID(submission_id)) == 1
+        raise ConnectionError("lost acknowledgement")
+
+    monkeypatch.setattr("app.modules.submissions.service.judge_submission.delay", lost_ack)
+    response = await client.post("/api/v1/submissions", headers=auth_headers(participant), json={
+        "problem_id": str(problem.id), "language": "python", "code": "print(1)",
+    })
+    assert response.status_code == 503
+    assert await db_session.scalar(select(Submission.status)) == SubmissionStatus.RUNNING
+    assert await db_session.scalar(select(Notification.id)) is None
 
 
 @pytest.mark.parametrize(
