@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.core.rate_limit import get_redis
 from app.models.models import User, UserRole
 from app.modules.auth.schemas import TokenResponse
-from app.modules.auth.service import get_user_by_email
+from app.modules.auth.service import ensure_active, get_user_by_email
 from app.modules.auth.sessions import digest, start_session
 
 router = APIRouter(prefix="/github")
@@ -152,7 +152,9 @@ async def save_identity(db: AsyncSession, profile: Identity, email: str) -> User
         # This value can never authenticate through the password endpoint.
         user = User(github_id=str(profile.id), role=UserRole.PARTICIPANT, password_hash="!github")
         db.add(user)
-    user.name = ((profile.name or "").strip() or profile.login)[:100]
+    if not user.name_customized:
+        user.name = ((profile.name or "").strip() or profile.login)[:100]
+    ensure_active(user)
     user.email = email
     try:
         await db.commit()
@@ -161,6 +163,7 @@ async def save_identity(db: AsyncSession, profile: Identity, email: str) -> User
         # A second callback can create the same GitHub account concurrently.
         winner = await db.scalar(by_id)
         if winner and winner.email == email:
+            ensure_active(winner)
             return winner
         raise HTTPException(409, "OAUTH_EMAIL_CONFLICT") from None
     await db.refresh(user)
@@ -191,7 +194,7 @@ async def callback(
     profile, email = await fetch_identity(client, code, verifier)
     user = await save_identity(db, profile, email)
     ticket = secrets.token_urlsafe(32)
-    await redis.set("contest:github:ticket:" + digest(ticket), str(user.id), ex=60)
+    await redis.set("contest:github:ticket:" + digest(ticket), f"{user.id}:{user.auth_version}", ex=60)
     response = RedirectResponse(settings.GITHUB_FRONTEND_URL, 303, headers=PRIVATE_HEADERS)
     response.delete_cookie(STATE_COOKIE, path=CALLBACK)
     set_cookie(response, TICKET_COOKIE, ticket, EXCHANGE, 60)
@@ -207,7 +210,14 @@ async def exchange(
 ) -> TokenResponse:
     ticket = request.cookies.get(TICKET_COOKIE)
     subject = await redis.getdel("contest:github:ticket:" + digest(ticket)) if ticket else None
-    if not subject or await db.get(User, uuid.UUID(subject)) is None:
+    if not subject:
+        raise HTTPException(401, "INVALID_OAUTH_TICKET")
+    identifier, _, version = subject.partition(":")
+    user = await db.get(User, uuid.UUID(identifier))
+    if user is None:
+        raise HTTPException(401, "INVALID_OAUTH_TICKET")
+    ensure_active(user)
+    if user.auth_version != int(version or 0):
         raise HTTPException(401, "INVALID_OAUTH_TICKET")
     response.delete_cookie(TICKET_COOKIE, path=EXCHANGE)
-    return await start_session(redis, response, uuid.UUID(subject))
+    return await start_session(redis, response, user.id, user.auth_version)

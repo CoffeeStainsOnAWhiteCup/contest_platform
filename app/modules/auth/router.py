@@ -35,7 +35,7 @@ async def login(
     redis: Annotated[Redis, Depends(get_redis)],
 ) -> TokenResponse:
     user = await authenticate_user(db, payload)
-    return await start_session(redis, response, user.id)
+    return await start_session(redis, response, user.id, user.auth_version or 0)
 
 
 @router.post("/refresh", response_model=TokenResponse)

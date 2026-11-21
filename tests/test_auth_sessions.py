@@ -234,3 +234,17 @@ async def test_old_requests_leave_sliding_window():
             assert await redis.zcard(key) == 1
         finally:
             await redis.delete(key)
+
+
+async def test_oauth_block_between_callback_and_exchange(client, provider, admin_user):
+    from app.modules.auth.security import create_access_token
+
+    admin = {"Authorization": f"Bearer {create_access_token(admin_user.id)}"}
+    flow = await begin(client, provider)
+    assert (await client.get(GITHUB + "/callback", params=flow)).status_code == 303
+    accounts = (await client.get("/api/v1/users", headers=admin)).json()
+    uid = next(a["id"] for a in accounts if a["email"] == provider["email"])
+    await client.patch(f"/api/v1/users/{uid}/block", headers=admin, json={"is_blocked": True})
+    assert (await client.post(GITHUB + "/exchange")).status_code == 403
+    flow = await begin(client, provider)
+    assert (await client.get(GITHUB + "/callback", params=flow)).status_code == 403

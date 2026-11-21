@@ -52,4 +52,10 @@ async def authenticate_user(db: AsyncSession, payload: LoginRequest) -> User:
     valid = await run_in_threadpool(verify_password, payload.password.get_secret_value(), password_hash)
     if user is None or not password_login or not valid:
         raise invalid_credentials()
+    ensure_active(user)
     return user
+
+
+def ensure_active(user: User) -> None:
+    if user.is_blocked:
+        raise HTTPException(403, "Account blocked")

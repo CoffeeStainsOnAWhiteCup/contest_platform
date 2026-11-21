@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = "contest-platform"
     JWT_AUDIENCE: str = "contest-platform-api"
 
+    TELEGRAM_BOT_TOKEN: SecretStr | None = None
+    TELEGRAM_WEBHOOK_SECRET: SecretStr | None = None
+    TELEGRAM_BOT_USERNAME: str = ""
+
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: SecretStr | None = None
     GITHUB_CALLBACK_URL: str = "http://localhost:8000/api/v1/auth/github/callback"

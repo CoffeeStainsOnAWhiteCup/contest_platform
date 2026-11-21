@@ -25,11 +25,12 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: uuid.UUID) -> str:
+def create_access_token(user_id: uuid.UUID, version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": str(user_id),
+            "ver": version,
             "jti": uuid.uuid4().hex,
             "iat": now,
             "exp": now + timedelta(minutes=settings.JWT_ACCESS_TOKEN_MINUTES),
@@ -43,6 +44,10 @@ def create_access_token(user_id: uuid.UUID) -> str:
 
 
 def decode_access_token(token: str) -> uuid.UUID:
+    return access_identity(token)[0]
+
+
+def access_identity(token: str) -> tuple[uuid.UUID, int]:
     payload = jwt.decode(
         token,
         settings.JWT_SECRET_KEY.get_secret_value(),
@@ -54,6 +59,6 @@ def decode_access_token(token: str) -> uuid.UUID:
     if payload["type"] != "access":
         raise InvalidTokenError("Wrong token type")
     try:
-        return uuid.UUID(payload["sub"])
+        return uuid.UUID(payload["sub"]), int(payload.get("ver", 0))
     except (ValueError, TypeError, AttributeError) as exc:
         raise InvalidTokenError("Invalid token subject") from exc

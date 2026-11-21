@@ -4,7 +4,15 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.models import Language, Problem, Submission, SubmissionStatus, SubmissionTestResult, Verdict
+from app.models.models import (
+    Language,
+    Problem,
+    Submission,
+    SubmissionStatus,
+    SubmissionTestResult,
+    Verdict,
+)
+from app.modules.rating.service import revision_update
 
 
 async def get_problem_with_contest(db: AsyncSession, problem_id: uuid.UUID) -> Problem | None:
@@ -29,6 +37,7 @@ async def create_submission(
         status=SubmissionStatus.PENDING,
     )
     db.add(submission)
+    await db.execute(revision_update(problem_id))
     await db.commit()
     await db.refresh(submission)
     return submission
@@ -95,6 +104,7 @@ async def reset_for_rejudge(db: AsyncSession, submission: Submission) -> Submiss
             celery_task_id=None,
         )
     )
+    await db.execute(revision_update(submission.problem_id))
     await db.commit()
     await db.refresh(submission)
     return submission

@@ -27,6 +27,19 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build: .
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: alembic upgrade head
+
   api:
     build: .
     restart: unless-stopped
@@ -42,6 +55,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
@@ -59,6 +74,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     command: celery -A app.core.celery_app.celery worker -Q judge -c 2 --loglevel=info
     volumes:
       - .:/app
@@ -68,6 +85,20 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  notifications:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery_app.celery worker -B -Q notifications -c 1 --schedule=/tmp/telegram-beat
+    volumes:
+      - .:/app
 
   test:
     profiles: ["test"]

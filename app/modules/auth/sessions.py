@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import User
 from app.modules.auth.schemas import TokenResponse
+from app.modules.auth.service import ensure_active
 from app.modules.auth.security import create_access_token
 
 LIFETIME = 7 * 24 * 3600
@@ -56,24 +57,24 @@ def parse_family(token: str) -> str:
     return match[1]
 
 
-def token_response(response: Response, user_id: uuid.UUID, refresh: str) -> TokenResponse:
+def token_response(response: Response, user_id: uuid.UUID, refresh: str, version: int) -> TokenResponse:
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     return TokenResponse(
-        access_token=create_access_token(user_id),
+        access_token=create_access_token(user_id, version),
         refresh_token=refresh,
         expires_in=settings.JWT_ACCESS_TOKEN_MINUTES * 60,
     )
 
 
-async def start_session(redis: Redis, response: Response, user_id: uuid.UUID) -> TokenResponse:
+async def start_session(redis: Redis, response: Response, user_id: uuid.UUID, version: int = 0) -> TokenResponse:
     family = secrets.token_hex(16)
     token = token_for(family)
     async with redis.pipeline(transaction=True) as pipe:
-        pipe.hset(session_key(family), mapping={"user": str(user_id), "active": digest(token)})
+        pipe.hset(session_key(family), mapping={"user": str(user_id), "active": digest(token), "version": version})
         pipe.expire(session_key(family), LIFETIME)
         await pipe.execute()
-    return token_response(response, user_id, token)
+    return token_response(response, user_id, token, version)
 
 
 async def refresh_session(
@@ -81,13 +82,17 @@ async def refresh_session(
 ) -> TokenResponse:
     family = parse_family(token)
     key = session_key(family)
-    stored = await redis.hget(key, "user")
-    if not stored or await db.get(User, uuid.UUID(stored)) is None:
+    stored, version = await redis.hmget(key, "user", "version")
+    user = await db.get(User, uuid.UUID(stored)) if stored else None
+    if user is None:
+        raise invalid_refresh()
+    ensure_active(user)
+    if int(version or 0) != user.auth_version:
         raise invalid_refresh()
     replacement = token_for(family)
     if not await redis.eval(_ROTATE, 1, key, digest(token), digest(replacement)):
         raise invalid_refresh()
-    return token_response(response, uuid.UUID(stored), replacement)
+    return token_response(response, user.id, replacement, user.auth_version)
 
 
 async def end_session(redis: Redis, token: str) -> None:

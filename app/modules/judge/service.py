@@ -27,6 +27,8 @@ from app.modules.judge.sandbox.verdicts import (
     status_for_test,
     submission_status_for_verdict,
 )
+from app.modules.notifications.tasks import enqueue_verdict
+from app.modules.rating.service import revision_update
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +141,8 @@ def _finalize(
         submission.passed_tests = passed_tests
         submission.judged_at = _now()
         submission.error_message = message
+        enqueue_verdict(session, submission, status)
+        session.execute(revision_update(submission.problem_id))
         session.commit()
 
 
