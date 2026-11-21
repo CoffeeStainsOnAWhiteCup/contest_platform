@@ -11,24 +11,35 @@ from app.modules.auth.security import decode_access_token
 bearer = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    unauthorized = HTTPException(
+def _unauthorized() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or missing access token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
     if credentials is None:
-        raise unauthorized
+        return None
     try:
         user_id = decode_access_token(credentials.credentials)
     except InvalidTokenError:
-        raise unauthorized from None
+        raise _unauthorized() from None
     user = await db.get(User, user_id)
     if user is None:
-        raise unauthorized
+        raise _unauthorized()
+    return user
+
+
+async def get_current_user(
+    user: User | None = Depends(get_current_user_optional),
+) -> User:
+    if user is None:
+        raise _unauthorized()
     return user
 
 
