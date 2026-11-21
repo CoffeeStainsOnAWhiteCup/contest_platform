@@ -55,7 +55,8 @@ alembic upgrade head
 ```bash
 export DATABASE_URL=...          # копия базы, +asyncpg
 export SYNC_DATABASE_URL=...     # копия базы, +psycopg
-psql "$SYNC_DATABASE_URL" -c "select current_database()"
+export PSQL_URL="${SYNC_DATABASE_URL/+psycopg/}"   # psql не понимает +psycopg
+psql "$PSQL_URL" -c "select current_database()"
 alembic stamp 6d233f26b0ba
 alembic upgrade head
 alembic check

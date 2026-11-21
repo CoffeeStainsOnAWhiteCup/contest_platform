@@ -145,8 +145,8 @@ def test_problem_ordinals_are_backfilled_from_initial_revision():
         _run_alembic("upgrade", "6d233f26b0ba")
 
         contest_id = uuid.uuid4()
-        first_problem = uuid.uuid4()
-        second_problem = uuid.uuid4()
+        first_problem = uuid.UUID(int=1)
+        second_problem = uuid.UUID(int=2)
         with psycopg.connect(_sync_url()) as connection:
             _insert_contest(connection, contest_id, "migration contest")
             _insert_problem(connection, first_problem, contest_id)
