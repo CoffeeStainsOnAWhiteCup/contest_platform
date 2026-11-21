@@ -27,6 +27,7 @@ os.environ["SYNC_DATABASE_URL"] = TEST_SYNC_DATABASE_URL
 from app.core.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.models import Base, Contest, ContestStatus, Problem, Test, User, UserRole  # noqa: E402
+from app.modules.auth.security import create_access_token  # noqa: E402
 
 
 async def _ensure_database() -> None:
@@ -117,6 +118,10 @@ async def create_user(
     return user
 
 
+def auth_headers(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+
 async def create_contest_and_problem(
     db: AsyncSession,
     *,
@@ -137,6 +142,7 @@ async def create_contest_and_problem(
     )
     problem = Problem(
         contest=contest,
+        ordinal=1,
         title="A+B",
         statement="Read two numbers",
         time_limit_ms=time_limit_ms,

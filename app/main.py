@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine
 from app.modules.auth.router import router as auth_router
+from app.modules.contests.router import contests_router, problems_router
 from app.modules.notifications.router import router as telegram_router
 from app.modules.rating.router import router as rating_router
 from app.modules.submissions.router import router as submissions_router
@@ -28,6 +29,8 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rating_router, prefix="/api/v1")
 app.include_router(telegram_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(contests_router, prefix="/api/v1")
+app.include_router(problems_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
 
 
