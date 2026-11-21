@@ -1,12 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_current_user_optional, require_roles
 from app.core.database import get_db
 from app.models.models import ContestStatus, User, UserRole
-from app.modules.contests import service
+from app.modules.contests import importer, service
 from app.modules.contests.schemas import (
     ContestCreate,
     ContestDetail,
@@ -175,3 +175,17 @@ async def delete_test(
     _editor: User = Depends(require_roles(UserRole.ADMIN, UserRole.JUDGE)),
 ) -> None:
     await service.delete_test(db, problem_id, test_id)
+
+@problems_router.post("/{problem_id}/tests/import", status_code=status.HTTP_201_CREATED)
+async def import_tests(
+    problem_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _editor: User = Depends(require_roles(UserRole.ADMIN, UserRole.JUDGE)),
+) -> dict[str, int]:
+    """Append all test cases from one JSON or CSV upload."""
+    content = await file.read(importer.MAX_BYTES + 1)
+    if len(content) > importer.MAX_BYTES:
+        raise HTTPException(413, "File exceeds 5 MiB")
+    rows = importer.parse_file(file.filename or "", content)
+    return {"imported": await importer.append_tests(db, problem_id, rows)}

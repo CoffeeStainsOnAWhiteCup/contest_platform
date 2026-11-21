@@ -12,7 +12,7 @@ class EmailInput(BaseModel):
 
     @field_validator("email", mode="before")
     @classmethod
-    def normalize_email(cls, value):
+    def normalize_email(cls, value: object) -> object:
         # Account identifiers in this application are case-insensitive.
         return value.strip().lower() if isinstance(value, str) else value
 
@@ -37,7 +37,7 @@ class RegisterRequest(EmailInput):
 
     @field_validator("name", mode="before")
     @classmethod
-    def trim_name(cls, value):
+    def trim_name(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
 
 

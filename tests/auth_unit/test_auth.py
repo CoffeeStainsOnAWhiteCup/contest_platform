@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import require_roles
 from app.core.config import Settings, settings
 from app.core.database import get_db
 from app.core.rate_limit import get_redis, limit_ip
@@ -57,7 +57,7 @@ def api():
 def test_password_hashing():
     first = hash_password("Password123!")
     second = hash_password("Password123!")
-    assert first.startswith("$argon2id$")
+    assert first.startswith("$bcrypt-sha256$v=2,t=2b,r=12$")
     assert first != second
     assert verify_password("Password123!", first)
     assert not verify_password("wrong", first)
@@ -228,3 +228,13 @@ async def test_concurrent_duplicate_rolls_back():
         await register_user(db, payload)
     assert error.value.status_code == 409
     db.rollback.assert_awaited_once()
+
+
+def test_legacy_and_long_unicode_passwords():
+    from pwdlib import PasswordHash
+
+    password = "я" * 50 + "1"
+    assert verify_password(password, PasswordHash.recommended().hash(password))
+    saved = hash_password(password)
+    assert verify_password(password, saved)
+    assert not verify_password(password[:-1] + "2", saved)

@@ -7,3 +7,9 @@ htmlcov/
 req.md
 spec.docx
 REPORT_JUDGE.md
+
+.mypy_cache/
+.ruff_cache/
+coverage.json
+
+.coverage.*

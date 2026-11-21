@@ -1,0 +1,85 @@
+name: Backend
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:ci-only-password@localhost:5432/postgres
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ephemeral-ci-only-signing-key-not-for-deployment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: mypy
+      - run: alembic upgrade head && alembic check
+      - name: Test with PostgreSQL, Redis and the runner Docker daemon
+        run: |
+          docker info >/dev/null
+          AUTH_TEST_DATABASE_URL=$DATABASE_URL python -m pytest -q -ra --cov=app.modules.auth --cov=app.modules.rating --cov=app.modules.judge --cov-report=json:coverage.json
+          python -m tools.check_coverage coverage.json
+      - run: docker build -t contest-platform:ci .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.json
+
+  demo-deployment:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy and check disposable Compose stand
+        run: |
+          cp .env.example .env
+          python tools/init_auth_env.py
+          docker compose up -d --build
+          curl --fail --retry 15 --retry-connrefused --retry-delay 2 http://localhost:8000/health
+          docker compose exec -T api python -m alembic check
+          curl --fail http://localhost:8000/metrics | grep contest_http_requests_total
+      - if: always()
+        run: docker compose down
+
+  publish:
+    needs: demo-deployment
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested revision
+        shell: bash
+        run: |
+          tag="ghcr.io/${GITHUB_REPOSITORY,,}:$GITHUB_SHA"
+          docker build -t "$tag" .
+          docker push "$tag"

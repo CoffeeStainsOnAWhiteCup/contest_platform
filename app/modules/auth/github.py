@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 import base64
 import hashlib
 import logging
@@ -44,12 +46,12 @@ class Address(BaseModel):
     verified: bool
 
 
-def configured():
+def configured() -> None:
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(503, "OAUTH_CONFIG_ERROR")
 
 
-def set_cookie(response: Response, name: str, value: str, path: str, ttl: int):
+def set_cookie(response: Response, name: str, value: str, path: str, ttl: int) -> None:
     response.set_cookie(
         name,
         value,
@@ -66,7 +68,7 @@ def state_key(state: str, browser: str) -> str:
 
 
 @router.get("", response_class=RedirectResponse, status_code=302)
-async def authorize(redis: Annotated[Redis, Depends(get_redis)]):
+async def authorize(redis: Annotated[Redis, Depends(get_redis)]) -> RedirectResponse:
     configured()
     state, browser, verifier = (secrets.token_urlsafe(32) for _ in range(3))
     challenge = (
@@ -90,7 +92,7 @@ async def authorize(redis: Annotated[Redis, Depends(get_redis)]):
     return response
 
 
-async def github_client():
+async def github_client() -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(timeout=8, headers={"Accept": "application/json"}) as client:
         yield client
 
@@ -98,12 +100,15 @@ async def github_client():
 async def fetch_identity(
     client: httpx.AsyncClient, code: str, verifier: str
 ) -> tuple[Identity, str]:
+    client_secret = settings.GITHUB_CLIENT_SECRET
+    if client_secret is None:
+        raise HTTPException(503, "OAUTH_CONFIG_ERROR")
     try:
         token = await client.post(
             "https://github.com/login/oauth/access_token",
             data={
                 "client_id": settings.GITHUB_CLIENT_ID,
-                "client_secret": settings.GITHUB_CLIENT_SECRET.get_secret_value(),
+                "client_secret": client_secret.get_secret_value(),
                 "redirect_uri": settings.GITHUB_CALLBACK_URL,
                 "code": code,
                 "code_verifier": verifier,
@@ -179,7 +184,7 @@ async def callback(
     state: str = "",
     code: str = "",
     error: str = "",
-):
+) -> RedirectResponse:
     configured()
     browser = request.cookies.get(STATE_COOKIE)
     if not browser or len(state) != 43:

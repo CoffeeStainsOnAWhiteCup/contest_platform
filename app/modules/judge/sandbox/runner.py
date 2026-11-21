@@ -4,9 +4,11 @@ import shlex
 import time
 import uuid
 from dataclasses import dataclass
+from types import TracebackType
 
 import docker
 from docker.errors import DockerException, ImageNotFound
+from docker.models.containers import Container
 
 from app.core.config import settings
 from app.modules.judge.sandbox.languages import LanguageConfig
@@ -19,7 +21,7 @@ class SandboxError(Exception):
 
 
 class SandboxUnavailable(SandboxError):
-    pass
+    attempt: int | None = None
 
 
 class SandboxOutputLimitExceeded(SandboxError):
@@ -60,13 +62,13 @@ class SandboxSession:
         self.time_limit_ms = time_limit_ms
         self.memory_limit_mb = memory_limit_mb
         self.client: docker.DockerClient | None = None
-        self.container = None
+        self.container: Container | None = None
 
     def __enter__(self) -> "SandboxSession":
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None) -> None:
         self.cleanup()
 
     def start(self) -> None:
@@ -74,6 +76,7 @@ class SandboxSession:
             self.client = docker.from_env()
             self.client.ping()
         except DockerException as exc:
+            self.cleanup()
             raise SandboxUnavailable(f"Docker daemon is unavailable: {exc}") from exc
 
         try:
@@ -82,8 +85,10 @@ class SandboxSession:
             try:
                 self.client.images.pull(self.config.image)
             except DockerException as exc:
+                self.cleanup()
                 raise SandboxUnavailable(f"Cannot pull image {self.config.image}: {exc}") from exc
         except DockerException as exc:
+            self.cleanup()
             raise SandboxUnavailable(f"Cannot access image {self.config.image}: {exc}") from exc
 
         tmpfs_size = settings.SANDBOX_TMPFS_MB

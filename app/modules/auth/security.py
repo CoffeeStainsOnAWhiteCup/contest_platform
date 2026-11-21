@@ -1,26 +1,32 @@
 import uuid
+from typing import cast
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from jwt.exceptions import InvalidTokenError
+from passlib.hash import bcrypt_sha256
 from pwdlib import PasswordHash
 from pwdlib.exceptions import UnknownHashError
 
 from app.core.config import settings
 
 
-password_hasher = PasswordHash.recommended()
+legacy_password_hasher = PasswordHash.recommended()
+# The salted SHA-256 prehash preserves every byte of long UTF-8 passwords.
+password_hasher = bcrypt_sha256.using(rounds=12)
 # An unknown email still performs password verification.
 DUMMY_PASSWORD_HASH = password_hasher.hash("not-a-real-account-password")
 
 
 def hash_password(password: str) -> str:
-    return password_hasher.hash(password)
+    return cast(str, password_hasher.hash(password))
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return password_hasher.verify(password, password_hash)
+        if password_hasher.identify(password_hash):
+            return cast(bool, password_hasher.verify(password, password_hash))
+        return legacy_password_hasher.verify(password, password_hash)
     except (UnknownHashError, ValueError):
         return False
 

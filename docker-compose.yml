@@ -48,6 +48,7 @@ services:
     env_file:
       - .env
     environment:
+      HTTP_LOG_DIR: /var/log/contest
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
     depends_on:
@@ -57,11 +58,13 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --no-access-log
     volumes:
       - .:/app
+      - api_logs:/var/log/contest
 
   worker:
+    stop_grace_period: 5m
     build: .
     restart: unless-stopped
     env_file:
@@ -87,6 +90,7 @@ services:
       retries: 3
 
   notifications:
+    stop_grace_period: 2m
     build: .
     restart: unless-stopped
     env_file:
@@ -99,6 +103,19 @@ services:
     command: celery -A app.core.celery_app.celery worker -B -Q notifications -c 1 --schedule=/tmp/telegram-beat
     volumes:
       - .:/app
+
+  backup:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - postgres_backup:/backups
+      - ./tools/backup.sh:/opt/backup.sh:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["sh", "/opt/backup.sh"]
 
   test:
     profiles: ["test"]
@@ -120,3 +137,5 @@ services:
 
 volumes:
   postgres_data:
+  api_logs:
+  postgres_backup:

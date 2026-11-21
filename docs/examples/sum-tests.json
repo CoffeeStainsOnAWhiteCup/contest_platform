@@ -1,0 +1,4 @@
+[
+  {"input_data": "1 2\n", "expected_output": "3\n", "is_sample": true},
+  {"input_data": "-1 1\n", "expected_output": "0\n", "is_sample": false}
+]

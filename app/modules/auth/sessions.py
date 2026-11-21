@@ -46,7 +46,7 @@ def token_for(family: str) -> str:
     return family + "." + secrets.token_urlsafe(32)
 
 
-def invalid_refresh():
+def invalid_refresh() -> HTTPException:
     return HTTPException(401, "Invalid or expired refresh token")
 
 
@@ -82,7 +82,7 @@ async def refresh_session(
 ) -> TokenResponse:
     family = parse_family(token)
     key = session_key(family)
-    stored, version = await redis.hmget(key, "user", "version")
+    stored, version = await redis.execute_command("HMGET", key, "user", "version")
     user = await db.get(User, uuid.UUID(stored)) if stored else None
     if user is None:
         raise invalid_refresh()
@@ -90,12 +90,12 @@ async def refresh_session(
     if int(version or 0) != user.auth_version:
         raise invalid_refresh()
     replacement = token_for(family)
-    if not await redis.eval(_ROTATE, 1, key, digest(token), digest(replacement)):
+    if not await redis.execute_command("EVAL", _ROTATE, 1, key, digest(token), digest(replacement)):
         raise invalid_refresh()
     return token_response(response, user.id, replacement, user.auth_version)
 
 
 async def end_session(redis: Redis, token: str) -> None:
     key = session_key(parse_family(token))
-    if not await redis.eval(_ROTATE, 1, key, digest(token), ""):
+    if not await redis.execute_command("EVAL", _ROTATE, 1, key, digest(token), ""):
         raise invalid_refresh()

@@ -13,6 +13,7 @@ from app.models.models import (
     Submission,
     SubmissionStatus,
     SubmissionTestResult,
+    Test,
     Verdict,
     VerdictStatus,
 )
@@ -92,7 +93,7 @@ def _finalize(
     total_tests: int = 0,
     passed_tests: int = 0,
     message: str | None = None,
-    test_results: list[dict] | None = None,
+    test_results: list[dict[str, object]] | None = None,
 ) -> None:
     with SyncSessionLocal() as session:
         submission = session.scalar(
@@ -190,7 +191,7 @@ def _reset_for_retry(submission_id: uuid.UUID, message: str, *, expected_attempt
 
 def _load_submission_for_judging(
     submission_id: uuid.UUID,
-) -> tuple[list, Language, str, int, int] | None:
+) -> tuple[list[Test], Language, str, int, int] | None:
     with SyncSessionLocal() as session:
         submission = session.scalar(
             select(Submission)
@@ -214,7 +215,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
     if attempt is None:
         return
 
-    tests: list = []
+    tests: list[Test] = []
     try:
         loaded = _load_submission_for_judging(submission_id)
         if loaded is None:
@@ -232,7 +233,7 @@ def judge_submission_sync(submission_id: uuid.UUID) -> None:
             return
 
         config = get_language_config(language)
-        test_results: list[dict] = []
+        test_results: list[dict[str, object]] = []
         runtime_output = ""
         compile_output = ""
 

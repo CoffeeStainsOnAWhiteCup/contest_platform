@@ -1,5 +1,5 @@
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -19,7 +19,8 @@ def invalid_credentials() -> HTTPException:
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     # Also finds legacy mixed-case values. New registrations are normalized.
-    return await db.scalar(select(User).where(func.lower(User.email) == email))
+    user: User | None = await db.scalar(select(User).where(func.lower(User.email) == email))
+    return user
 
 
 async def register_user(db: AsyncSession, payload: RegisterRequest) -> User:
@@ -48,11 +49,19 @@ async def register_user(db: AsyncSession, payload: RegisterRequest) -> User:
 async def authenticate_user(db: AsyncSession, payload: LoginRequest) -> User:
     user = await get_user_by_email(db, str(payload.email))
     password_login = user is not None and user.password_hash != "!github"
-    password_hash = user.password_hash if password_login else DUMMY_PASSWORD_HASH
+    password_hash = user.password_hash if user is not None and password_login else DUMMY_PASSWORD_HASH
     valid = await run_in_threadpool(verify_password, payload.password.get_secret_value(), password_hash)
     if user is None or not password_login or not valid:
         raise invalid_credentials()
     ensure_active(user)
+    if password_hash.startswith("$argon2"):
+        new_hash = await run_in_threadpool(hash_password, payload.password.get_secret_value())
+        await db.execute(
+            update(User)
+            .where(User.id == user.id, User.password_hash == password_hash)
+            .values(password_hash=new_hash)
+        )
+        await db.commit()
     return user
 
 
