@@ -26,9 +26,14 @@ app = FastAPI(title="Contest Platform", lifespan=lifespan)
 app.middleware("http")(monitoring.observe)
 app.include_router(monitoring.router)
 frontend = urlsplit(settings.GITHUB_FRONTEND_URL)
-app.add_middleware(CORSMiddleware, allow_origins=[f"{frontend.scheme}://{frontend.netloc}"],
-                   allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
-                   allow_headers=["Authorization", "Content-Type"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[f"{frontend.scheme}://{frontend.netloc}"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["Retry-After"],
+)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rating_router, prefix="/api/v1")
 app.include_router(telegram_router, prefix="/api/v1")
