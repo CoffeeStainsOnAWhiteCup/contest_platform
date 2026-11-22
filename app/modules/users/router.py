@@ -1,15 +1,145 @@
-"""User endpoints specified in TECH_SPEC section 5.4."""
+"""Profile and administrator endpoints."""
 
-from fastapi import APIRouter, Depends
+import uuid
+from typing import Annotated
 
-from app.api.deps import get_current_user
-from app.models.models import User
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user, require_roles
+from app.core.database import get_db
+from app.models.models import User, UserAudit, UserRole
 from app.modules.auth.schemas import UserRead
 
 router = APIRouter(prefix="/users", tags=["users"])
+Current = Annotated[User, Depends(get_current_user)]
+Admin = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
+DB = Annotated[AsyncSession, Depends(get_db)]
 
 
-@router.get("/me", response_model=UserRead)
-async def me(user: User = Depends(get_current_user)) -> User:
-    """Return the authenticated user's profile without credentials."""
+class Profile(UserRead):
+    avatar_url: str | None = None
+
+
+class AdminView(Profile):
+    is_blocked: bool
+
+
+class Edit(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    avatar_url: HttpUrl | None = None
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if not self.model_fields_set or ("name" in self.model_fields_set and self.name is None):
+            raise ValueError("Supply a name or an avatar URL (null clears the avatar)")
+        if self.avatar_url and len(str(self.avatar_url)) > 2048:
+            raise ValueError("Avatar URL is too long")
+        return self
+
+
+class RoleChange(BaseModel):
+    role: UserRole
+
+
+class BlockChange(BaseModel):
+    is_blocked: bool
+
+
+@router.get("/me", response_model=Profile, response_model_exclude_none=True)
+async def me(user: Current):
     return user
+
+
+@router.patch("/me", response_model=Profile)
+async def update_profile(payload: Edit, user: Current, db: DB):
+    if payload.name is not None:
+        user.name = payload.name
+        user.name_customized = True
+    if "avatar_url" in payload.model_fields_set:
+        user.avatar_url = str(payload.avatar_url) if payload.avatar_url else None
+    await db.commit()
+    return user
+
+
+@router.get("", response_model=list[AdminView])
+async def list_users(
+    admin: Admin, db: DB, page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100)
+):
+    query = select(User).order_by(User.created_at, User.id).offset((page - 1) * size).limit(size)
+    return (await db.scalars(query)).all()
+
+
+async def _lock_active_admins(db: AsyncSession) -> None:
+    """Serialize administrator changes so the last active admin cannot be removed."""
+    await db.execute(
+        select(User.id)
+        .where(User.role == UserRole.ADMIN, User.is_blocked.is_(False))
+        .order_by(User.id)
+        .with_for_update()
+    )
+
+
+async def _guard_admin_removal(
+    db: AsyncSession, actor: User, user: User, field: str, value
+) -> None:
+    active_admin = user.role == UserRole.ADMIN and not user.is_blocked
+    removes_admin = active_admin and (
+        (field == "role" and value != UserRole.ADMIN)
+        or (field == "is_blocked" and value is True)
+    )
+    if not removes_admin:
+        return
+    if field == "is_blocked" and user.id == actor.id:
+        await db.rollback()
+        raise HTTPException(409, "Cannot block your own account")
+    other_admins = await db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.role == UserRole.ADMIN,
+            User.is_blocked.is_(False),
+            User.id != user.id,
+        )
+    )
+    if not other_admins:
+        await db.rollback()
+        raise HTTPException(409, "Cannot remove the last active administrator")
+
+
+async def record_change(db: AsyncSession, actor: User, user_id: uuid.UUID, field: str, value):
+    await _lock_active_admins(db)
+    user = await db.get(User, user_id, with_for_update=True, populate_existing=True)
+    if user is None:
+        await db.rollback()
+        raise HTTPException(404, "User not found")
+    await _guard_admin_removal(db, actor, user, field, value)
+    old = getattr(user, field)
+    if old != value:
+        db.add(
+            UserAudit(
+                actor_id=actor.id,
+                user_id=user.id,
+                field=field,
+                old_value=str(getattr(old, "value", old)),
+                new_value=str(getattr(value, "value", value)),
+            )
+        )
+        setattr(user, field, value)
+        if field == "is_blocked" and value:
+            user.auth_version += 1
+    await db.commit()
+    return user
+
+
+@router.patch("/{user_id}/role", response_model=AdminView)
+async def change_role(user_id: uuid.UUID, payload: RoleChange, admin: Admin, db: DB):
+    return await record_change(db, admin, user_id, "role", payload.role)
+
+
+@router.patch("/{user_id}/block", response_model=AdminView)
+async def change_block(user_id: uuid.UUID, payload: BlockChange, admin: Admin, db: DB):
+    return await record_change(db, admin, user_id, "is_blocked", payload.is_blocked)

@@ -3,9 +3,10 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Submission, SubmissionStatus, User, UserRole
+from app.models.models import Submission, SubmissionStatus, User, UserRole, Verdict, VerdictStatus, utcnow
 from app.modules.contests.policy import submission_denial_reason
 from app.modules.judge.tasks import judge_submission
+from app.modules.notifications.events import enqueue_verdict
 from app.modules.submissions import repository
 from app.modules.submissions.schemas import (
     RejudgeResponse,
@@ -22,18 +23,30 @@ def _is_privileged(user: User) -> bool:
 
 
 async def _enqueue(db: AsyncSession, submission: Submission) -> None:
+    attempt = submission.judge_attempt
     try:
         task = judge_submission.delay(str(submission.id))
-        submission.celery_task_id = task.id
-        await db.commit()
     except Exception as exc:
-        submission.status = SubmissionStatus.SYSTEM_ERROR
-        submission.error_message = f"Cannot enqueue judge task: {exc}"
+        # A broker can lose its acknowledgement after a worker has claimed the job.
+        current = await db.get(Submission, submission.id, with_for_update=True, populate_existing=True)
+        if current is not None and current.status == SubmissionStatus.PENDING and current.judge_attempt == attempt:
+            current.judge_attempt += 1
+            current.status = SubmissionStatus.SYSTEM_ERROR
+            current.error_message = "Judge queue is unavailable"
+            current.judged_at = utcnow()
+            db.add(Verdict(
+                submission_id=current.id,
+                status=VerdictStatus.SYSTEM_ERROR,
+                message=current.error_message,
+            ))
+            await db.run_sync(enqueue_verdict, current, VerdictStatus.SYSTEM_ERROR)
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Judge queue is unavailable",
         ) from exc
+    submission.celery_task_id = task.id
+    await db.commit()
 
 
 async def create_submission(

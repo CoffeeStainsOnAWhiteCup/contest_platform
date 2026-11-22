@@ -76,6 +76,12 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.PARTICIPANT, nullable=False)
 
+    name_customized: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    avatar_url: Mapped[str | None] = mapped_column(String(2048))
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    telegram_linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     github_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
 
@@ -96,6 +102,7 @@ class Contest(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+    rating_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     problems: Mapped[list["Problem"]] = relationship(back_populates="contest", cascade="all, delete-orphan")
 
 
@@ -220,3 +227,36 @@ class SubmissionTestResult(Base):
 
     submission: Mapped["Submission"] = relationship(back_populates="test_results")
     test: Mapped["Test"] = relationship(back_populates="test_results")
+
+
+class UserAudit(Base):
+    __tablename__ = "user_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    field: Mapped[str] = mapped_column(String(24))
+    old_value: Mapped[str] = mapped_column(String(48))
+    new_value: Mapped[str] = mapped_column(String(48))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Notification(Base):
+    """Durable queue and delivery log, one message per user and event."""
+    __tablename__ = "notifications"
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_key", name="uq_notification_event"),
+        Index("ix_notification_due", "status", "available_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    chat_id: Mapped[str] = mapped_column(String(100))
+    event_key: Mapped[str] = mapped_column(String(160))
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(default=0)
+    transient_failures: Mapped[int] = mapped_column(default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(80))

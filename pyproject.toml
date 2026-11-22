@@ -1,0 +1,18 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 115
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.11"
+explicit_package_bases = true
+strict = true
+files = ["app/modules/auth", "app/modules/rating", "app/modules/judge"]
+follow_imports = "silent"
+untyped_calls_exclude = ["redis.asyncio.client.Redis.execute_command"]
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "docker.*", "passlib.*", "requests.*"]
+ignore_missing_imports = true

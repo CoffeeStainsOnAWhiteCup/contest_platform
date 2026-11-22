@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: Ruff
+        entry: python -m ruff check
+        language: system
+        types: [python]
+      - id: mypy
+        name: Strict typing for auth, rating and judge
+        entry: python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false

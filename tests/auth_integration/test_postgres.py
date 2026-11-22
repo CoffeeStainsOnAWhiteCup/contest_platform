@@ -42,7 +42,7 @@ async def postgres_api():
                 yield session
 
         app.dependency_overrides[get_db] = override_db
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(transport=ASGITransport(app=app, client=(f"test-{uuid.uuid4().hex}", 12345)), base_url="http://test") as client:
             yield client, factory
     finally:
         app.dependency_overrides.pop(get_db, None)
@@ -86,3 +86,23 @@ async def test_two_users_receive_their_own_profile(postgres_api):
         me = await client.get("/api/v1/users/me", headers={"Authorization": "Bearer " + login.json()["access_token"]})
         assert me.status_code == 200
         assert me.json()["id"] == registered.json()["id"]
+
+
+async def test_old_hash_upgrades_only_after_successful_login(postgres_api):
+    from pwdlib import PasswordHash
+
+    client, factory = postgres_api
+    email, password = "legacy@example.com", "LegacyPass123"
+    old_hash = PasswordHash.recommended().hash(password)
+    async with factory.begin() as db:
+        db.add(User(email=email, name="Legacy", password_hash=old_hash))
+    for candidate, expected_status in [("wrong", 401), (password, 200)]:
+        response = await client.post("/api/v1/auth/login", json={"email": email, "password": candidate})
+        assert response.status_code == expected_status
+        async with factory() as db:
+            saved = await db.scalar(select(User.password_hash).where(User.email == email))
+        if expected_status == 401:
+            assert saved == old_hash
+        else:
+            assert saved.startswith("$bcrypt-sha256$v=2,t=2b,r=12$")
+            assert verify_password(password, saved)

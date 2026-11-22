@@ -1,5 +1,6 @@
 import logging
 import uuid
+from celery import Task
 
 from app.core.celery_app import celery
 from app.core.config import settings
@@ -14,8 +15,8 @@ from app.modules.judge.service import (
 logger = logging.getLogger(__name__)
 
 
-@celery.task(bind=True, name="judge.judge_submission", max_retries=settings.JUDGE_MAX_ATTEMPTS)
-def judge_submission(self, submission_id: str) -> None:
+@celery.task(bind=True, name="judge.judge_submission", max_retries=settings.JUDGE_MAX_ATTEMPTS)  # type: ignore[untyped-decorator]
+def judge_submission(self: Task, submission_id: str) -> None:
     submission_uuid = uuid.UUID(submission_id)
     try:
         judge_submission_sync(submission_uuid)

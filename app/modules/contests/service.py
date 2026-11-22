@@ -59,8 +59,8 @@ def _problem_detail(problem: Problem, tests: list[Test]) -> ProblemDetail:
     )
 
 
-async def _get_contest(db: AsyncSession, contest_id: uuid.UUID) -> Contest:
-    contest = await repository.get_contest(db, contest_id)
+async def _get_contest(db: AsyncSession, contest_id: uuid.UUID, *, for_update: bool = False) -> Contest:
+    contest = await db.get(Contest, contest_id, with_for_update=for_update, populate_existing=for_update)
     if contest is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contest not found"
@@ -164,7 +164,7 @@ async def create_contest(
 async def update_contest(
     db: AsyncSession, contest_id: uuid.UUID, payload: ContestUpdate
 ) -> ContestRead:
-    contest = await _get_contest(db, contest_id)
+    contest = await _get_contest(db, contest_id, for_update=True)
     values = payload.model_dump(exclude_unset=True)
     if not values:
         return _contest_read(contest)
