@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     SANDBOX_MAX_OUTPUT_BYTES: int = 65536
     JUDGE_MAX_ATTEMPTS: int = 3
     JUDGE_STALE_TIMEOUT_S: int = 300
+    NOTIFICATION_RETENTION_DAYS: int = Field(default=30, ge=1)
 
     JWT_SECRET_KEY: SecretStr
     JWT_ACCESS_TOKEN_MINUTES: int = Field(default=30, ge=1, le=1440)

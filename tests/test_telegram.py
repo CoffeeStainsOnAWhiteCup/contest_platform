@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.models.models import ContestStatus, Notification, Submission, SubmissionStatus, Verdict, utcnow
 from app.modules.auth.security import create_access_token
 from app.modules.notifications.router import link_key
-from app.modules.notifications.tasks import dispatch
+from app.modules.notifications.tasks import cleanup, dispatch
 from tests.conftest import auth_headers, create_contest_and_problem
 
 
@@ -201,3 +201,48 @@ async def test_telegram_failure_policy(
             await run_in_threadpool(dispatch.run)
             await db_session.refresh(item)
         assert item.status == "failed" and item.transient_failures == 4 and item.attempts == 9
+
+
+async def test_cleanup_removes_only_old_terminal_notifications(db_session, participant):
+    now = utcnow()
+    rows = [
+        Notification(
+            user_id=participant.id,
+            chat_id="1",
+            event_key="old-sent",
+            message="message",
+            status="sent",
+            delivered_at=now - timedelta(days=40),
+            available_at=now - timedelta(days=41),
+        ),
+        Notification(
+            user_id=participant.id,
+            chat_id="1",
+            event_key="recent-sent",
+            message="message",
+            status="sent",
+            delivered_at=now - timedelta(days=1),
+            available_at=now - timedelta(days=41),
+        ),
+        Notification(
+            user_id=participant.id,
+            chat_id="1",
+            event_key="old-failed",
+            message="message",
+            status="failed",
+            available_at=now - timedelta(days=40),
+        ),
+        Notification(
+            user_id=participant.id,
+            chat_id="1",
+            event_key="old-pending",
+            message="message",
+            status="pending",
+            available_at=now - timedelta(days=40),
+        ),
+    ]
+    db_session.add_all(rows)
+    await db_session.commit()
+    await run_in_threadpool(cleanup.run)
+    keys = set(await db_session.scalars(select(Notification.event_key)))
+    assert keys == {"recent-sent", "old-pending"}

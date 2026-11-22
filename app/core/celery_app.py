@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -17,9 +18,18 @@ celery.conf.update(
     task_routes={
         "judge.judge_submission": {"queue": "judge"},
         "notifications.dispatch": {"queue": "notifications"},
+        "notifications.cleanup": {"queue": "notifications"},
     },
     beat_schedule={
-        "telegram-delivery": {"task": "notifications.dispatch", "schedule": 10.0, "options": {"expires": 10}}
+        "telegram-delivery": {
+            "task": "notifications.dispatch",
+            "schedule": 10.0,
+            "options": {"expires": 10},
+        },
+        "notifications-cleanup": {
+            "task": "notifications.cleanup",
+            "schedule": crontab(hour=3, minute=0),
+        },
     },
     timezone="UTC",
     enable_utc=True,

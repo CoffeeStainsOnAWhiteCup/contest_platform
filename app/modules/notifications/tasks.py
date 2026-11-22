@@ -4,7 +4,7 @@ import logging
 from datetime import timedelta
 
 import requests
-from sqlalchemy import select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import celery
@@ -70,6 +70,26 @@ def send_one(db: Session, item: Notification, token: str) -> None:
     else:
         item.status = "failed"
     logger.warning("Telegram notification %s: %s (%s)", item.id, item.status, item.last_error)
+
+
+@celery.task(name="notifications.cleanup")
+def cleanup() -> None:
+    cutoff = utcnow() - timedelta(days=settings.NOTIFICATION_RETENTION_DAYS)
+    with SyncSessionLocal.begin() as db:
+        db.execute(
+            delete(Notification).where(
+                or_(
+                    and_(
+                        Notification.status == "sent",
+                        Notification.delivered_at < cutoff,
+                    ),
+                    and_(
+                        Notification.status.in_(("failed", "cancelled")),
+                        Notification.available_at < cutoff,
+                    ),
+                )
+            )
+        )
 
 
 @celery.task(name="notifications.dispatch")
