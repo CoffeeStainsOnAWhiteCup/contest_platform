@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_roles
@@ -73,10 +73,50 @@ async def list_users(
     return (await db.scalars(query)).all()
 
 
+async def _lock_active_admins(db: AsyncSession) -> None:
+    """Serialize administrator changes so the last active admin cannot be removed."""
+    await db.execute(
+        select(User.id)
+        .where(User.role == UserRole.ADMIN, User.is_blocked.is_(False))
+        .order_by(User.id)
+        .with_for_update()
+    )
+
+
+async def _guard_admin_removal(
+    db: AsyncSession, actor: User, user: User, field: str, value
+) -> None:
+    active_admin = user.role == UserRole.ADMIN and not user.is_blocked
+    removes_admin = active_admin and (
+        (field == "role" and value != UserRole.ADMIN)
+        or (field == "is_blocked" and value is True)
+    )
+    if not removes_admin:
+        return
+    if field == "is_blocked" and user.id == actor.id:
+        await db.rollback()
+        raise HTTPException(409, "Cannot block your own account")
+    other_admins = await db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.role == UserRole.ADMIN,
+            User.is_blocked.is_(False),
+            User.id != user.id,
+        )
+    )
+    if not other_admins:
+        await db.rollback()
+        raise HTTPException(409, "Cannot remove the last active administrator")
+
+
 async def record_change(db: AsyncSession, actor: User, user_id: uuid.UUID, field: str, value):
+    await _lock_active_admins(db)
     user = await db.get(User, user_id, with_for_update=True, populate_existing=True)
     if user is None:
+        await db.rollback()
         raise HTTPException(404, "User not found")
+    await _guard_admin_removal(db, actor, user, field, value)
     old = getattr(user, field)
     if old != value:
         db.add(
