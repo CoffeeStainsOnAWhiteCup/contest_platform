@@ -109,6 +109,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
       - postgres_backup:/backups
       - ./tools/backup.sh:/opt/backup.sh:ro
