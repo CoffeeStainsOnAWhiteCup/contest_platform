@@ -102,6 +102,24 @@ async def test_board_survives_cache_outage(client, db_session, monkeypatch):
     assert (await client.get(f"/api/v1/contests/{contest.id}/leaderboard")).json()["items"] == []
 
 
+async def test_board_rebuilds_corrupt_cache(client, db_session, participant):
+    contest, problem, _ = await create_contest_and_problem(db_session)
+    db_session.add(
+        attempt(participant, problem, 1, SubmissionStatus.ACCEPTED, contest.start_at)
+    )
+    await db_session.commit()
+    url = f"/api/v1/contests/{contest.id}/leaderboard"
+    assert (await client.get(url)).json()["items"][0]["solved"] == 1
+    async with Redis.from_url(settings.REDIS_URL, decode_responses=True) as cache:
+        keys = [key async for key in cache.scan_iter(match="contest:rating:v1:*")]
+        assert keys
+        for key in keys:
+            await cache.set(key, "not-json")
+    response = await client.get(url)
+    assert response.status_code == 200
+    assert response.json()["items"][0]["solved"] == 1
+
+
 async def test_submit_verdict_rating_and_notification(
     client, db_session, participant, judge_user, fake_judge_task, monkeypatch
 ):

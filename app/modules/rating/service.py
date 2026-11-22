@@ -95,7 +95,7 @@ async def scores(
         cached = await redis.get(key)
         if cached:
             return _SCORE_LIST.validate_json(cached)
-    except RedisError:
+    except (RedisError, ValueError):
         pass
     result = await db.execute(SCORES, {"ids": [row.id for row in contests]})
     rows = _SCORE_LIST.validate_python([dict(row) for row in result.mappings()])
