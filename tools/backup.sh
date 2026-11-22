@@ -27,7 +27,7 @@ if [ "$retention" -lt 1 ]; then
 fi
 
 prune() {
-    find "$destination" -maxdepth 1 -type f -name 'contest-*.dump' -mtime +"$retention" -exec rm -f {} +
+    find "$destination" -maxdepth 1 -type f -name 'contest-*.dump' -mtime +"$retention" -exec rm -f {} \;
 }
 
 dump_once() {
