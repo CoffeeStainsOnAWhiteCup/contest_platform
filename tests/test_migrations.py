@@ -271,3 +271,35 @@ def test_ordinals_preserve_existing_values_and_resolve_conflicts():
         }
     finally:
         asyncio.run(_drop_database())
+
+
+def test_account_state_schema_is_migrated():
+    asyncio.run(_create_database())
+    try:
+        _run_alembic("upgrade", "head")
+        with psycopg.connect(_sync_url()) as connection:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public'"
+                ).fetchall()
+            }
+            columns = {
+                (row[0], row[1])
+                for row in connection.execute(
+                    "SELECT table_name, column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public'"
+                ).fetchall()
+            }
+        assert {"notifications", "user_audit"} <= tables
+        assert {
+            ("users", "name_customized"),
+            ("users", "avatar_url"),
+            ("users", "is_blocked"),
+            ("users", "auth_version"),
+            ("users", "telegram_linked_at"),
+            ("contests", "rating_revision"),
+        } <= columns
+    finally:
+        asyncio.run(_drop_database())
