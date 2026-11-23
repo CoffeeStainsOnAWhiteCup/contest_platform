@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/form";
 import { LANGUAGE_LABELS, contestStatusLabel } from "@/lib/labels";
+import { formatDateTime } from "@/lib/format";
+import { submitDenial } from "@/lib/contestWindow";
 
 const TEMPLATES: Record<Language, string> = {
   python: `import sys\n\n\ndef main():\n    data = sys.stdin.read().split()\n    # TODO\n\n\nif __name__ == "__main__":\n    main()\n`,
@@ -48,12 +50,24 @@ export function SubmitPanel({
     setCode(TEMPLATES[next]);
   }
 
+  const denial = submitDenial(contest);
+  const canSubmit = contest.can_submit && denial === null;
+
   return (
     <Card title="Отправка решения">
-      {!contest.can_submit && (
+      <p className="mb-3 text-xs text-muted-foreground">
+        Интервал конкурса: {formatDateTime(contest.start_at)} — {formatDateTime(contest.end_at)}
+      </p>
+      {denial && (
         <Alert variant="info" className="mb-3">
-          Конкурс в статусе «{contestStatusLabel(contest.status)}»: отправка доступна только во
-          время активного конкурса.
+          {denial.kind === "not_active" &&
+            `Отправка доступна только в активном конкурсе. Сейчас статус «${contestStatusLabel(
+              denial.status,
+            )}».`}
+          {denial.kind === "not_started" &&
+            `Конкурс ещё не начался. Начало: ${formatDateTime(denial.startAt)}.`}
+          {denial.kind === "finished" &&
+            `Конкурс уже завершился. Окончание: ${formatDateTime(denial.endAt)}.`}
         </Alert>
       )}
       {mutation.isError && (
@@ -85,7 +99,7 @@ export function SubmitPanel({
           />
         </div>
         <Button
-          disabled={!contest.can_submit || mutation.isPending || code.trim().length === 0}
+          disabled={!canSubmit || mutation.isPending || code.trim().length === 0}
           onClick={() => mutation.mutate()}
         >
           {mutation.isPending ? "Отправляем…" : "Отправить"}

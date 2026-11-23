@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldError, Input, Label, Select, Textarea } from "@/components/ui/form";
 import { fromLocalInput, toLocalInput } from "@/lib/format";
+import { submitDenial } from "@/lib/contestWindow";
 import { contestStatusLabel } from "@/lib/labels";
 
 const STATUSES: ContestStatus[] = ["draft", "published", "active", "finished", "archived"];
@@ -48,6 +49,9 @@ export function ContestFormPage() {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -91,6 +95,28 @@ export function ContestFormPage() {
     }
   }
 
+  const status = watch("status");
+  const startAt = watch("start_at");
+  const endAt = watch("end_at");
+  const windowWarning = useMemo(() => {
+    if (status !== "active" || !startAt || !endAt) {
+      return null;
+    }
+    return submitDenial({ status, start_at: startAt, end_at: endAt });
+  }, [status, startAt, endAt]);
+
+  function setActiveNow() {
+    const now = new Date();
+    setValue("start_at", toLocalInput(now.toISOString()), { shouldValidate: true });
+    const currentEnd = getValues("end_at");
+    if (!currentEnd || Date.parse(currentEnd) <= now.getTime()) {
+      setValue("end_at", toLocalInput(new Date(now.getTime() + 3_600_000).toISOString()), {
+        shouldValidate: true,
+      });
+    }
+    setValue("status", "active", { shouldValidate: true });
+  }
+
   return (
     <div className="mx-auto max-w-lg">
       <Card title={editing ? "Изменить конкурс" : "Новый конкурс"}>
@@ -99,6 +125,12 @@ export function ContestFormPage() {
         ) : (
           <form className="space-y-3" onSubmit={handleSubmit(onSubmit)} noValidate>
             {error && <Alert variant="error">{error}</Alert>}
+            {windowWarning && (
+              <Alert variant="warning">
+                Статус «Идёт», но интервал не включает текущее время — участники не смогут
+                отправлять решения. Исправьте начало и конец или нажмите «Активно сейчас».
+              </Alert>
+            )}
             <div>
               <Label htmlFor="title">Название</Label>
               <Input id="title" {...register("title")} />
@@ -129,6 +161,11 @@ export function ContestFormPage() {
                   </option>
                 ))}
               </Select>
+            </div>
+            <div>
+              <Button variant="secondary" size="sm" onClick={setActiveNow}>
+                Активно сейчас
+              </Button>
             </div>
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={isSubmitting}>
