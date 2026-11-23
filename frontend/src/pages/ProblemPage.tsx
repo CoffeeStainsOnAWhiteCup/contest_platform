@@ -1,11 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
+import { Suspense, lazy } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { getContest } from "@/api/contests";
 import { ApiError, errorMessage } from "@/api/errors";
 import { getProblem } from "@/api/problems";
 import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
+
+const SubmitPanel = lazy(() =>
+  import("@/components/SubmitPanel").then((module) => ({ default: module.SubmitPanel })),
+);
 
 export function ProblemPage() {
   const { problemId = "" } = useParams();
@@ -15,6 +21,13 @@ export function ProblemPage() {
     queryFn: () => getProblem(problemId),
     enabled: Boolean(problemId),
     retry: false,
+  });
+
+  const contestId = query.data?.contest_id;
+  const contestQuery = useQuery({
+    queryKey: ["contest", contestId],
+    queryFn: () => getContest(contestId as string),
+    enabled: Boolean(contestId),
   });
 
   if (query.isLoading) {
@@ -78,6 +91,12 @@ export function ProblemPage() {
           </div>
         )}
       </Card>
+
+      {user && contestQuery.data && (
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Загрузка редактора…</p>}>
+          <SubmitPanel problem={problem} contest={contestQuery.data} />
+        </Suspense>
+      )}
     </div>
   );
 }
