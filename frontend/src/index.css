@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  a {
+    @apply text-primary underline-offset-2 hover:underline;
+  }
+}
+
+@layer components {
+  .page {
+    @apply mx-auto w-full max-w-5xl px-4 py-6;
+  }
+
+  .table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .table th {
+    @apply border-b border-border px-3 py-2 text-left font-medium text-muted-foreground;
+  }
+
+  .table td {
+    @apply border-b border-border px-3 py-2 align-top;
+  }
+
+  .table tbody tr:hover {
+    @apply bg-muted/60;
+  }
+}
