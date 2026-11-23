@@ -1,6 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 
-import { RequireAuth } from "@/auth/guards";
+import { RequireAuth, RequireRole } from "@/auth/guards";
 import { AppShell } from "@/components/layout/AppShell";
 import { CallbackPage } from "@/pages/CallbackPage";
 import { ContestDetailPage } from "@/pages/ContestDetailPage";
@@ -14,6 +14,9 @@ import { ProblemPage } from "@/pages/ProblemPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { SubmissionDetailPage } from "@/pages/SubmissionDetailPage";
 import { SubmissionsPage } from "@/pages/SubmissionsPage";
+import { AdminContestsPage } from "@/pages/admin/AdminContestsPage";
+import { ContestFormPage } from "@/pages/admin/ContestFormPage";
+import { ProblemFormPage } from "@/pages/admin/ProblemFormPage";
 
 export const router = createBrowserRouter([
   {
@@ -34,6 +37,21 @@ export const router = createBrowserRouter([
         children: [
           { path: "submissions", element: <SubmissionsPage /> },
           { path: "submissions/:submissionId", element: <SubmissionDetailPage /> },
+        ],
+      },
+      {
+        element: <RequireRole roles={["admin"]} />,
+        children: [
+          { path: "admin/contests", element: <AdminContestsPage /> },
+          { path: "admin/contests/new", element: <ContestFormPage /> },
+          { path: "admin/contests/:contestId/edit", element: <ContestFormPage /> },
+        ],
+      },
+      {
+        element: <RequireRole roles={["judge", "admin"]} />,
+        children: [
+          { path: "admin/contests/:contestId/problems/new", element: <ProblemFormPage /> },
+          { path: "admin/problems/:problemId/edit", element: <ProblemFormPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },

@@ -17,3 +17,15 @@ export function formatDuration(ms: number | null | undefined): string {
   }
   return `${ms} мс`;
 }
+
+/** Convert an ISO timestamp to a value accepted by an input[type=datetime-local]. */
+export function toLocalInput(iso: string): string {
+  const date = new Date(iso);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+/** Interpret a datetime-local value as local time and return an ISO string. */
+export function fromLocalInput(value: string): string {
+  return new Date(value).toISOString();
+}

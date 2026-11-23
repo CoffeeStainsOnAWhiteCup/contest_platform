@@ -3,14 +3,19 @@ import { Link, useParams } from "react-router-dom";
 
 import { getContest } from "@/api/contests";
 import { errorMessage } from "@/api/errors";
+import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format";
 import { contestStatusLabel, contestStatusVariant } from "@/lib/labels";
 
 export function ContestDetailPage() {
   const { contestId = "" } = useParams();
+  const { hasRole } = useAuth();
+  const staff = hasRole("judge", "admin");
+  const admin = hasRole("admin");
   const query = useQuery({
     queryKey: ["contest", contestId],
     queryFn: () => getContest(contestId),
@@ -43,12 +48,22 @@ export function ContestDetailPage() {
           {formatDateTime(contest.start_at)} — {formatDateTime(contest.end_at)}
         </p>
         {contest.description && <p className="text-sm">{contest.description}</p>}
-        <Link to={`/contests/${contest.id}/leaderboard`} className="text-sm">
-          Таблица результатов
-        </Link>
+        <div className="flex items-center gap-4 text-sm">
+          <Link to={`/contests/${contest.id}/leaderboard`}>Таблица результатов</Link>
+          {admin && <Link to={`/admin/contests/${contest.id}/edit`}>Изменить конкурс</Link>}
+        </div>
       </div>
 
-      <Card title="Задачи">
+      <Card
+        title="Задачи"
+        actions={
+          staff ? (
+            <Link to={`/admin/contests/${contest.id}/problems/new`}>
+              <Button size="sm">Добавить задачу</Button>
+            </Link>
+          ) : undefined
+        }
+      >
         {contest.problems && contest.problems.length > 0 ? (
           <table className="table">
             <thead>
@@ -57,6 +72,7 @@ export function ContestDetailPage() {
                 <th>Название</th>
                 <th className="w-28">Время</th>
                 <th className="w-28">Память</th>
+                {staff && <th className="w-24">Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -68,6 +84,13 @@ export function ContestDetailPage() {
                   </td>
                   <td>{problem.time_limit_ms} мс</td>
                   <td>{problem.memory_limit_mb} МБ</td>
+                  {staff && (
+                    <td>
+                      <Link to={`/admin/problems/${problem.id}/edit`} className="text-sm">
+                        Изменить
+                      </Link>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

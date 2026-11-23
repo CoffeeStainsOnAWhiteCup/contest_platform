@@ -38,7 +38,7 @@ export function AppShell() {
           <div className="ml-auto flex items-center gap-4 text-sm">
             {status === "loading" ? null : user ? (
               <>
-                {user.role !== "participant" && (
+                {user.role === "admin" && (
                   <NavLink to="/admin/contests" className={navClass}>
                     Управление
                   </NavLink>
