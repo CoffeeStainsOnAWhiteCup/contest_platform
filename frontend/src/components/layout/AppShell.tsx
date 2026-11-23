@@ -39,9 +39,14 @@ export function AppShell() {
             {status === "loading" ? null : user ? (
               <>
                 {user.role === "admin" && (
-                  <NavLink to="/admin/contests" className={navClass}>
-                    Управление
-                  </NavLink>
+                  <>
+                    <NavLink to="/admin/contests" className={navClass}>
+                      Управление
+                    </NavLink>
+                    <NavLink to="/admin/users" className={navClass}>
+                      Пользователи
+                    </NavLink>
+                  </>
                 )}
                 <NavLink to="/submissions" className={navClass}>
                   Решения

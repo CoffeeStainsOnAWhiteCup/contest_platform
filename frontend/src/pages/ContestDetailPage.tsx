@@ -85,9 +85,12 @@ export function ContestDetailPage() {
                   <td>{problem.time_limit_ms} мс</td>
                   <td>{problem.memory_limit_mb} МБ</td>
                   {staff && (
-                    <td>
+                    <td className="space-x-2">
                       <Link to={`/admin/problems/${problem.id}/edit`} className="text-sm">
                         Изменить
+                      </Link>
+                      <Link to={`/admin/problems/${problem.id}/tests`} className="text-sm">
+                        Тесты
                       </Link>
                     </td>
                   )}

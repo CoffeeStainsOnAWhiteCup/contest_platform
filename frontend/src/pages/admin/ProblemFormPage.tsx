@@ -158,17 +158,22 @@ export function ProblemFormPage() {
                 Отмена
               </Link>
               {editing && (
-                <button
-                  type="button"
-                  className="ml-auto text-sm text-danger"
-                  onClick={() => {
-                    if (window.confirm("Удалить задачу?")) {
-                      remove.mutate();
-                    }
-                  }}
-                >
-                  Удалить задачу
-                </button>
+                <>
+                  <Link to={`/admin/problems/${problemId}/tests`} className="text-sm">
+                    Тесты
+                  </Link>
+                  <button
+                    type="button"
+                    className="ml-auto text-sm text-danger"
+                    onClick={() => {
+                      if (window.confirm("Удалить задачу?")) {
+                        remove.mutate();
+                      }
+                    }}
+                  >
+                    Удалить задачу
+                  </button>
+                </>
               )}
             </div>
           </form>

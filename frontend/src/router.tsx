@@ -15,8 +15,11 @@ import { RegisterPage } from "@/pages/RegisterPage";
 import { SubmissionDetailPage } from "@/pages/SubmissionDetailPage";
 import { SubmissionsPage } from "@/pages/SubmissionsPage";
 import { AdminContestsPage } from "@/pages/admin/AdminContestsPage";
+import { AdminTestsPage } from "@/pages/admin/AdminTestsPage";
+import { AdminUsersPage } from "@/pages/admin/AdminUsersPage";
 import { ContestFormPage } from "@/pages/admin/ContestFormPage";
 import { ProblemFormPage } from "@/pages/admin/ProblemFormPage";
+import { ProfilePage } from "@/pages/ProfilePage";
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +40,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "submissions", element: <SubmissionsPage /> },
           { path: "submissions/:submissionId", element: <SubmissionDetailPage /> },
+          { path: "profile", element: <ProfilePage /> },
         ],
       },
       {
@@ -45,6 +49,7 @@ export const router = createBrowserRouter([
           { path: "admin/contests", element: <AdminContestsPage /> },
           { path: "admin/contests/new", element: <ContestFormPage /> },
           { path: "admin/contests/:contestId/edit", element: <ContestFormPage /> },
+          { path: "admin/users", element: <AdminUsersPage /> },
         ],
       },
       {
@@ -52,6 +57,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "admin/contests/:contestId/problems/new", element: <ProblemFormPage /> },
           { path: "admin/problems/:problemId/edit", element: <ProblemFormPage /> },
+          { path: "admin/problems/:problemId/tests", element: <AdminTestsPage /> },
         ],
       },
       { path: "*", element: <NotFoundPage /> },
