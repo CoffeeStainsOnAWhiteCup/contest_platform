@@ -6,11 +6,13 @@ export function contestLeaderboard(
   page: number,
   size: number,
 ): Promise<Board> {
-  return apiJson<Board>(`/contests/${contestId}/leaderboard${queryString({ page, size })}`);
+  return apiJson<Board>(`/contests/${contestId}/leaderboard${queryString({ page, size })}`, {
+    auth: true,
+  });
 }
 
 export function globalRating(page: number, size: number): Promise<Board> {
-  return apiJson<Board>(`/rating/global${queryString({ page, size })}`);
+  return apiJson<Board>(`/rating/global${queryString({ page, size })}`, { auth: true });
 }
 
 export function myRating(contestId?: string): Promise<Entry | null> {

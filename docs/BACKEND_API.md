@@ -43,9 +43,9 @@ docker compose run --rm test sh -c 'AUTH_TEST_DATABASE_URL=$DATABASE_URL python 
   ```
   и выполните:
   ```sql
-  UPDATE users SET role = 'admin' WHERE email = 'owner@example.com';
+  UPDATE users SET role = 'ADMIN' WHERE email = 'owner@example.com';
   ```
-  Роль читается из БД на каждом запросе, поэтому повторный вход не обязателен. Удалить или заблокировать последнего активного администратора через API нельзя.
+  Роль хранится в enum `userrole`, где значения записаны именами в верхнем регистре (`PARTICIPANT`, `JUDGE`, `ADMIN`), хотя API отдаёт их в нижнем регистре. В сыром SQL используйте верхний регистр. Роль читается из БД на каждом запросе, поэтому повторный вход не обязателен. Удалить или заблокировать последнего активного администратора через API нельзя.
 
 ## Telegram
 

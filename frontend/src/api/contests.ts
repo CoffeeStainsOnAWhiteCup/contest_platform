@@ -15,11 +15,11 @@ export function listContests(params: {
   page?: number;
   size?: number;
 }): Promise<ContestListResponse> {
-  return apiJson<ContestListResponse>(`/contests${queryString(params)}`);
+  return apiJson<ContestListResponse>(`/contests${queryString(params)}`, { auth: true });
 }
 
 export function getContest(contestId: string): Promise<ContestDetail> {
-  return apiJson<ContestDetail>(`/contests/${contestId}`);
+  return apiJson<ContestDetail>(`/contests/${contestId}`, { auth: true });
 }
 
 export function createContest(payload: ContestCreate): Promise<ContestRead> {
