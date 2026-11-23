@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
-type Variant = "neutral" | "success" | "danger" | "warning" | "info";
+export type BadgeVariant = "neutral" | "success" | "danger" | "warning" | "info";
 
-const variants: Record<Variant, string> = {
+const variants: Record<BadgeVariant, string> = {
   neutral: "border-border bg-muted text-muted-foreground",
   success: "border-green-300 bg-green-50 text-green-800",
   danger: "border-red-300 bg-red-50 text-red-800",
@@ -17,7 +17,7 @@ export function Badge({
   className,
   children,
 }: {
-  variant?: Variant;
+  variant?: BadgeVariant;
   className?: string;
   children: ReactNode;
 }) {

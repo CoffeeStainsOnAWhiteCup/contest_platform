@@ -1,0 +1,81 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "react-router-dom";
+
+import { getContest } from "@/api/contests";
+import { errorMessage } from "@/api/errors";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { formatDateTime } from "@/lib/format";
+import { contestStatusLabel, contestStatusVariant } from "@/lib/labels";
+
+export function ContestDetailPage() {
+  const { contestId = "" } = useParams();
+  const query = useQuery({
+    queryKey: ["contest", contestId],
+    queryFn: () => getContest(contestId),
+    enabled: Boolean(contestId),
+  });
+
+  if (query.isLoading) {
+    return <p className="text-sm text-muted-foreground">Загрузка…</p>;
+  }
+  if (query.isError) {
+    return <Alert variant="error">{errorMessage(query.error)}</Alert>;
+  }
+  if (!query.data) {
+    return null;
+  }
+
+  const contest = query.data;
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold">{contest.title}</h1>
+          <Badge variant={contestStatusVariant(contest.status)}>
+            {contestStatusLabel(contest.status)}
+          </Badge>
+          {contest.can_submit && <Badge variant="success">можно отправлять</Badge>}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {formatDateTime(contest.start_at)} — {formatDateTime(contest.end_at)}
+        </p>
+        {contest.description && <p className="text-sm">{contest.description}</p>}
+        <Link to={`/contests/${contest.id}/leaderboard`} className="text-sm">
+          Таблица результатов
+        </Link>
+      </div>
+
+      <Card title="Задачи">
+        {contest.problems && contest.problems.length > 0 ? (
+          <table className="table">
+            <thead>
+              <tr>
+                <th className="w-12">№</th>
+                <th>Название</th>
+                <th className="w-28">Время</th>
+                <th className="w-28">Память</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contest.problems.map((problem) => (
+                <tr key={problem.id}>
+                  <td>{problem.ordinal}</td>
+                  <td>
+                    <Link to={`/problems/${problem.id}`}>{problem.title}</Link>
+                  </td>
+                  <td>{problem.time_limit_ms} мс</td>
+                  <td>{problem.memory_limit_mb} МБ</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-sm text-muted-foreground">Задачи ещё не добавлены.</p>
+        )}
+      </Card>
+    </div>
+  );
+}
