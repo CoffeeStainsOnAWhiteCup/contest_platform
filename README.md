@@ -18,6 +18,28 @@ docker compose exec api python -m alembic check
 
 Новые пароли защищены bcrypt с cost 12 в формате bcrypt-sha256 v2. Предварительная обработка пароля сохраняет различия после 72-го байта. Ранее созданные хеши Argon2id продолжают проверяться и обновляются после успешного входа по паролю.
 
+## Фронтенд
+
+Интерфейс на React, TypeScript и Vite лежит в каталоге `frontend`. В Compose он собирается отдельным образом (nginx) и открывается на http://localhost:5173, а запросы к `/api` проксируются на сервис `api`. Для локальной разработки запустите API в Compose, затем:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Dev-сервер слушает порт 5173 и проксирует `/api` на http://localhost:8000, поэтому `GITHUB_FRONTEND_URL` по умолчанию (`http://localhost:5173/auth/callback`) уже подходит. Базовый путь API задаёт `VITE_API_BASE_URL` (по умолчанию `/api/v1`). Типы генерируются из OpenAPI командой `npm run gen:api` (по умолчанию из снимка `frontend/openapi.json`, при необходимости задайте `OPENAPI_URL`). Проверки фронтенда:
+
+```powershell
+cd frontend
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+CI-воркфлой `frontend.yml` выполняет эти команды при изменениях в `frontend/`.
+
 ## Сценарий защиты
 
 1. Подготовить администратора и участника на БД демонстрационного ноутбука. Войти участником, проверить профиль и привязать Telegram до начала контеста.
