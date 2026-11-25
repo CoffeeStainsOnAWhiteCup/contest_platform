@@ -82,6 +82,9 @@ class User(Base):
     auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     telegram_linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    telegram_name: Mapped[str | None] = mapped_column(Text)
+    telegram_username: Mapped[str | None] = mapped_column(Text)
+
     github_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
 
@@ -260,3 +263,11 @@ class Notification(Base):
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(80))
+
+
+class ContestNotificationKey(Base):
+    """Contest event identities retained after the delivery history expires."""
+    __tablename__ = "contest_notification_keys"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(160), primary_key=True)

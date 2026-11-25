@@ -15,7 +15,7 @@ export function GlobalRatingPage() {
   const query = useQuery({
     queryKey: ["rating", "global", page],
     queryFn: () => globalRating(page, SIZE),
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   return (

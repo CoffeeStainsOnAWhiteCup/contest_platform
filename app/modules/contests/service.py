@@ -17,6 +17,7 @@ from app.modules.contests.schemas import (
     ContestCreate,
     ContestDetail,
     ContestListResponse,
+    ContestPhase,
     ContestRead,
     ContestUpdate,
     ProblemCreate,
@@ -117,20 +118,23 @@ async def list_contests(
     user: User | None,
     *,
     status_filter: ContestStatus | None,
+    phase: ContestPhase | None = None,
     page: int,
     size: int,
 ) -> ContestListResponse:
     visible_statuses = (
         None if is_privileged(user) else PARTICIPANT_VISIBLE_STATUSES
     )
-    contests, total = await repository.list_contests(
+    contests, total, next_change = await repository.list_contests(
         db,
         status=status_filter,
+        phase=phase,
         visible_statuses=visible_statuses,
         page=page,
         size=size,
     )
     return ContestListResponse(
+        next_phase_change_at=next_change,
         items=[_contest_read(contest) for contest in contests],
         total=total,
         page=page,

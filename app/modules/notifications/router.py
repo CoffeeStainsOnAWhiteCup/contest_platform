@@ -27,6 +27,13 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 class Chat(BaseModel):
     id: int
     type: str
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+
+    def update_identity(self, user: User) -> None:
+        user.telegram_name = " ".join(part for part in (self.first_name, self.last_name) if part) or None
+        user.telegram_username = self.username
 
 
 class Message(BaseModel):
@@ -35,6 +42,7 @@ class Message(BaseModel):
 
 
 class Update(BaseModel):
+    update_id: int | None = None
     message: Message | None = None
 
 
@@ -51,11 +59,16 @@ def link_key(code: uuid.UUID) -> str:
 class LinkStatus(BaseModel):
     linked: bool
     linked_at: datetime | None
+    name: str | None
+    username: str | None
 
 
 @router.get("/status")
 async def link_status(user: Annotated[User, Depends(get_current_user)]) -> LinkStatus:
-    return LinkStatus(linked=user.telegram_chat_id is not None, linked_at=user.telegram_linked_at)
+    return LinkStatus(
+        linked=user.telegram_chat_id is not None, linked_at=user.telegram_linked_at,
+        name=user.telegram_name, username=user.telegram_username,
+    )
 
 
 @router.post("/link", response_model=Link)
@@ -68,6 +81,15 @@ async def link(user: Annotated[User, Depends(get_current_user)], redis: Cache):
     return Link(
         code=code, expires_in=600, url=f"https://t.me/{username}?start={code}" if username else None
     )
+
+
+async def command_reply(redis: Redis, update_id: int | None, chat: Chat, text: str) -> dict:
+    # Telegram may retry the same incoming message; give each update one reply.
+    if update_id is not None and not await redis.set(
+        f"contest:telegram:reply:{update_id}", "1", nx=True, ex=86400
+    ):
+        return {"ok": True}
+    return {"method": "sendMessage", "chat_id": chat.id, "text": text}
 
 
 @router.post("/webhook")
@@ -86,6 +108,16 @@ async def webhook(
     if message is None or message.chat.type != "private":
         return {"ok": True}
     command, _, argument = message.text.strip().partition(" ")
+    chat_id = str(message.chat.id)
+    if command in ("/start", "/profile") and not argument:
+        linked = await db.scalar(select(User).where(User.telegram_chat_id == chat_id).with_for_update())
+        if linked is None or linked.is_blocked:
+            reply = "Откройте свой профиль на сайте, нажмите «Получить код привязки» и перейдите по ссылке в Telegram."
+        else:
+            message.chat.update_identity(linked)
+            reply = f"Этот чат привязан к профилю «{linked.name}». Сюда приходят вердикты и уведомления о конкурсах."
+            await db.commit()
+        return await command_reply(redis, update.update_id, message.chat, reply)
     if command != "/start":
         return {"ok": True}
     try:
@@ -106,12 +138,17 @@ async def webhook(
         )
     )
     if used is None:
-        chat_id = str(message.chat.id)
+        message.chat.update_identity(user)
         user.telegram_chat_id = chat_id
         user.telegram_linked_at = utcnow()
         db.add(
             Notification(
-                user_id=user.id, chat_id=chat_id, event_key=event, message="Аккаунт привязан"
+                user_id=user.id, chat_id=chat_id, event_key=event,
+                message=(
+                    f"✅ Telegram подключён к профилю «{user.name}».\n"
+                    "Сюда придут результаты решений и уведомления о начале и завершении конкурсов.\n"
+                    "Проверить привязку — /profile."
+                ),
             )
         )
         try:
@@ -120,6 +157,10 @@ async def webhook(
             await db.rollback()
             if getattr(exc.orig, "sqlstate", None) != "23505":
                 raise
-            # A chat already linked to another platform account cannot be reassigned here.
+            await redis.delete(key)
+            return await command_reply(
+                redis, update.update_id, message.chat,
+                "Этот чат уже привязан к другому профилю. Для новой привязки выберите другой аккаунт Telegram.",
+            )
     await redis.delete(key)
     return {"ok": True}

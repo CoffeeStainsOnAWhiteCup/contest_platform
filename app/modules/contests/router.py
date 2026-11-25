@@ -11,6 +11,7 @@ from app.modules.contests.schemas import (
     ContestCreate,
     ContestDetail,
     ContestListResponse,
+    ContestPhase,
     ContestRead,
     ContestUpdate,
     ProblemCreate,
@@ -29,6 +30,7 @@ problems_router = APIRouter(prefix="/problems", tags=["problems"])
 @contests_router.get("", response_model=ContestListResponse)
 async def list_contests(
     contest_status: ContestStatus | None = Query(default=None, alias="status"),
+    phase: ContestPhase | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -38,6 +40,7 @@ async def list_contests(
         db,
         current_user,
         status_filter=contest_status,
+        phase=phase,
         page=page,
         size=size,
     )

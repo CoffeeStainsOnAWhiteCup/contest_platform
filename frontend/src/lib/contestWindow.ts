@@ -28,3 +28,10 @@ export function submitDenial(contest: SubmitWindow, now: number = Date.now()): S
   }
   return null;
 }
+
+export function contestPhase(contest: SubmitWindow, now: number) {
+  const denial = submitDenial(contest, now);
+  if (denial?.kind === "not_started") return "scheduled";
+  if (denial?.kind === "finished") return "finished";
+  return contest.status;
+}

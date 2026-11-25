@@ -28,7 +28,9 @@ async def test_link_one_time_private_chat_and_ack(client, db_session, participan
     assert (await client.post(path + "/link")).status_code == 401
     status_url = path + "/status"
     assert (await client.get(status_url)).status_code == 401
-    assert (await client.get(status_url, headers=auth_headers(participant))).json() == {"linked": False, "linked_at": None}
+    assert (await client.get(status_url, headers=auth_headers(participant))).json() == {
+        "linked": False, "linked_at": None, "name": None, "username": None,
+    }
     result = (
         await client.post(
             path + "/link",
@@ -45,7 +47,7 @@ async def test_link_one_time_private_chat_and_ack(client, db_session, participan
     assert (await client.post(path + "/webhook", json=message)).status_code == 403
     await client.post(path + "/webhook", json=message, headers=bot)
     assert participant.telegram_chat_id is None
-    message["message"]["chat"]["type"] = "private"
+    message["message"]["chat"].update(type="private", first_name="Катя", last_name="М.", username="katya")
     assert (await client.post(path + "/webhook", headers=bot, json=message)).status_code == 200
     message["message"]["chat"]["id"] = 456
     assert (await client.post(path + "/webhook", headers=bot, json=message)).status_code == 200
@@ -54,9 +56,45 @@ async def test_link_one_time_private_chat_and_ack(client, db_session, participan
     status = (await client.get(status_url, headers=auth_headers(participant))).json()
     assert status["linked"] and status["linked_at"]
     records = (await db_session.scalars(select(Notification))).all()
-    assert len(records) == 1 and records[0].message == "Аккаунт привязан"
+    assert (status["name"], status["username"]) == ("Катя М.", "katya")
+    assert len(records) == 1 and participant.name in records[0].message and "/profile" in records[0].message
     async with Redis.from_url(settings.REDIS_URL) as cache:
         assert not await cache.exists(key)
+
+
+async def test_profile_refreshes_legacy_chat_without_changing_link_time(client, db_session, participant, bot):
+    linked_at = utcnow() - timedelta(days=5)
+    participant.telegram_chat_id = "123"
+    participant.telegram_linked_at = linked_at
+    await db_session.commit()
+    message = {"chat": {"id": 123, "type": "private", "first_name": "Анна"}, "text": "/profile"}
+    update = {"update_id": uuid.uuid4().int >> 97, "message": message}
+    url = "/api/v1/telegram/webhook"
+    reply = (await client.post(url, headers=bot, json=update)).json()
+    assert reply["method"] == "sendMessage" and reply["chat_id"] == 123
+    assert participant.name in reply["text"]
+    assert (await client.post(url, headers=bot, json=update)).json() == {"ok": True}
+    await db_session.refresh(participant)
+    assert participant.telegram_linked_at == linked_at and participant.telegram_name == "Анна"
+    assert participant.telegram_username is None
+
+
+async def test_unlinked_start_and_busy_chat(client, db_session, participant, admin_user, bot):
+    path = "/api/v1/telegram"
+    msg = {"chat": {"id": 124, "type": "private"}, "text": "/start"}
+    async def send():
+        return (await client.post(path + "/webhook", headers=bot, json={"message": msg})).json()
+
+    assert "Получить код" in (await send())["text"]
+    admin_user.telegram_chat_id = "124"
+    participant.telegram_chat_id = "123"
+    await db_session.commit()
+    code = (await client.post(path + "/link", headers=auth_headers(participant))).json()["code"]
+    msg["text"] = "/start " + code
+    assert "другому профилю" in (await send())["text"]
+    await db_session.refresh(participant)
+    await db_session.refresh(admin_user)
+    assert (participant.telegram_chat_id, admin_user.telegram_chat_id) == ("123", "124")
 
 
 class Reply:
@@ -90,6 +128,16 @@ async def test_contest_events_delivered_once(db_session, participant, bot, monke
     )
     records = (await db_session.scalars(select(Notification))).all()
     assert all(item.delivered_at and item.status == "sent" for item in records)
+
+    # Daily cleanup can expire delivery history while a finished contest is still visible.
+    for row in records:
+        row.delivered_at = now - timedelta(days=31)
+    await db_session.commit()
+    await run_in_threadpool(cleanup.run)
+    assert await db_session.scalar(select(Notification.id)) is None
+    await run_in_threadpool(dispatch.run)
+    assert await db_session.scalar(select(Notification.id)) is None
+    assert len(sent) == 2
 
 
 async def test_archive_preserves_due_end_once(client, db_session, admin_user, participant, bot, monkeypatch):

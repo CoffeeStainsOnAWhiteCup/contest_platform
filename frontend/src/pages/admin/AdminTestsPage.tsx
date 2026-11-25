@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { errorMessage } from "@/api/errors";
+import { ApiError, errorMessage } from "@/api/errors";
 import {
   createTest,
   deleteTest,
@@ -28,7 +28,9 @@ const EMPTY: Draft = { input_data: "", expected_output: "", is_sample: false, or
 
 function importError(error: unknown): string {
   const status = (error as { status?: number }).status;
-  if (status === 409) return "В файле повторяются явно заданные номера тестов.";
+  if (status === 409 && error instanceof ApiError && error.code === "Test ordinal already exists") {
+    return "Номер теста уже занят в задаче или повторяется в файле.";
+  }
   if (status === 413) return "Файл больше 5 МиБ.";
   if (status === 415) return "Поддерживаются только JSON и CSV.";
   if (status === 422) return "Не удалось разобрать файл: проверьте формат.";

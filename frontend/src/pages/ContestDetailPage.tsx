@@ -8,6 +8,8 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { contestPhase } from "@/lib/contestWindow";
+import { useContestTime } from "@/lib/useContestTime";
 import { formatDateTime } from "@/lib/format";
 import { contestStatusLabel, contestStatusVariant } from "@/lib/labels";
 
@@ -22,6 +24,8 @@ export function ContestDetailPage() {
     enabled: Boolean(contestId),
   });
 
+  const now = useContestTime(query.data);
+
   if (query.isLoading) {
     return <p className="text-sm text-muted-foreground">Загрузка…</p>;
   }
@@ -33,16 +37,17 @@ export function ContestDetailPage() {
   }
 
   const contest = query.data;
+  const phase = contestPhase(contest, now);
 
   return (
     <div className="space-y-5">
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">{contest.title}</h1>
-          <Badge variant={contestStatusVariant(contest.status)}>
-            {contestStatusLabel(contest.status)}
+          <Badge variant={contestStatusVariant(phase)}>
+            {contestStatusLabel(phase)}
           </Badge>
-          {contest.can_submit && <Badge variant="success">можно отправлять</Badge>}
+          {phase === "active" && <Badge variant="success">можно отправлять</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">
           {formatDateTime(contest.start_at)} — {formatDateTime(contest.end_at)}

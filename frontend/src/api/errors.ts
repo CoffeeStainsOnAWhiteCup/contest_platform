@@ -17,6 +17,11 @@ export class ApiError extends Error {
   }
 }
 
+const detailLabels = new Map([
+  ["Account blocked", "Аккаунт заблокирован."],
+  ["Email is already registered", "Этот email уже зарегистрирован."],
+]);
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 429) {
@@ -24,7 +29,7 @@ export function errorMessage(error: unknown): string {
       return `Слишком много запросов. Повторите через ${wait} с.`;
     }
     if (typeof error.detail === "string") {
-      return error.detail;
+      return detailLabels.get(error.detail) ?? error.detail;
     }
     return `Ошибка ${error.status}`;
   }

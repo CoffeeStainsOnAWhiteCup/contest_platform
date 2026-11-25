@@ -570,6 +570,12 @@ export interface components {
             id: number;
             /** Type */
             type: string;
+            /** First Name */
+            first_name?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /** Username */
+            username?: string | null;
         };
         /** ContestCreate */
         ContestCreate: {
@@ -627,6 +633,8 @@ export interface components {
         };
         /** ContestListResponse */
         ContestListResponse: {
+            /** Next Phase Change At */
+            next_phase_change_at?: string | null;
             /** Items */
             items: components["schemas"]["ContestRead"][];
             /** Total */
@@ -737,6 +745,10 @@ export interface components {
             linked: boolean;
             /** Linked At */
             linked_at: string | null;
+            /** Name */
+            name: string | null;
+            /** Username */
+            username: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1086,6 +1098,8 @@ export interface components {
         };
         /** Update */
         Update: {
+            /** Update Id */
+            update_id?: number | null;
             message?: components["schemas"]["Message"] | null;
         };
         /** UserRead */
@@ -1717,6 +1731,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["ContestStatus"] | null;
+                phase?: components["schemas"]["ContestStatus"] | "scheduled" | null;
                 page?: number;
                 size?: number;
             };

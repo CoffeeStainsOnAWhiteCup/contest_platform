@@ -15,10 +15,11 @@ import { Card } from "@/components/ui/card";
 import { Label, Select } from "@/components/ui/form";
 import { LANGUAGE_LABELS, contestStatusLabel } from "@/lib/labels";
 import { formatDateTime } from "@/lib/format";
+import { useContestTime } from "@/lib/useContestTime";
 import { submitDenial } from "@/lib/contestWindow";
 
 const TEMPLATES: Record<Language, string> = {
-  python: `import sys\n\n\ndef main():\n    data = sys.stdin.read().split()\n    # TODO\n\n\nif __name__ == "__main__":\n    main()\n`,
+  python: `def main():\n    # Прочитайте входные данные и выведите результат.\n    pass\n\n\nif __name__ == "__main__":\n    main()\n`,
   cpp: `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n    // TODO\n    return 0;\n}\n`,
   java: `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        // TODO\n    }\n}\n`,
 };
@@ -55,8 +56,9 @@ export function SubmitPanel({
     setCode(TEMPLATES[next]);
   }
 
-  const denial = submitDenial(contest);
-  const canSubmit = contest.can_submit && denial === null;
+  const now = useContestTime(contest);
+  const denial = submitDenial(contest, now);
+  const canSubmit = denial === null;
 
   return (
     <Card title="Отправка решения">

@@ -1,9 +1,13 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from app.models.models import ContestStatus
+
+
+ContestPhase = ContestStatus | Literal["scheduled"]
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -97,6 +101,7 @@ class ContestDetail(ContestRead):
 
 
 class ContestListResponse(BaseModel):
+    next_phase_change_at: datetime | None = None
     items: list[ContestRead]
     total: int
     page: int

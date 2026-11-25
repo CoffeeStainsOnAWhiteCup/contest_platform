@@ -9,6 +9,7 @@ export type AdminView = Schemas["AdminView"];
 export type UserRole = Schemas["UserRole"];
 
 export type ContestStatus = Schemas["ContestStatus"];
+export type ContestPhase = ContestStatus | "scheduled";
 export type ContestRead = Schemas["ContestRead"];
 export type ContestDetail = Schemas["ContestDetail"];
 export type ContestListResponse = Schemas["ContestListResponse"];
