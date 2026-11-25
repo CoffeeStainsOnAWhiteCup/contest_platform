@@ -3,8 +3,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { githubExchange, login as apiLogin, logout as apiLogout, register as apiRegister } from "@/api/auth";
 import { getMe } from "@/api/users";
 import type { Profile, UserRole } from "@/api/types";
+import { queryClient } from "@/lib/queryClient";
 import { AuthContext, type AuthStatus } from "./context";
-import { clearTokens, getRefreshToken, getTokens, setTokens, subscribeAuth } from "./tokenStore";
+import { clearTokens, getRefreshToken, getTokens, startLocalSession, subscribeAuth } from "./tokenStore";
 
 function toStore(tokens: { access_token: string; refresh_token: string }) {
   return { access: tokens.access_token, refresh: tokens.refresh_token };
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       subscribeAuth(() => {
         if (!getTokens()) {
+          queryClient.clear();
           setUser(null);
           setStatus("anonymous");
         }
@@ -48,7 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const tokens = await apiLogin(email, password);
-      setTokens(toStore(tokens));
+      queryClient.clear();
+      startLocalSession(toStore(tokens));
       const profile = await getMe();
       setUser(profile);
       setStatus("authenticated");
@@ -66,7 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGitHub = useCallback(async () => {
     const tokens = await githubExchange();
-    setTokens(toStore(tokens));
+    queryClient.clear();
+    startLocalSession(toStore(tokens));
     const profile = await getMe();
     setUser(profile);
     setStatus("authenticated");

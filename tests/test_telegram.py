@@ -26,6 +26,9 @@ def bot(monkeypatch):
 async def test_link_one_time_private_chat_and_ack(client, db_session, participant, bot):
     path = "/api/v1/telegram"
     assert (await client.post(path + "/link")).status_code == 401
+    status_url = path + "/status"
+    assert (await client.get(status_url)).status_code == 401
+    assert (await client.get(status_url, headers=auth_headers(participant))).json() == {"linked": False, "linked_at": None}
     result = (
         await client.post(
             path + "/link",
@@ -48,6 +51,8 @@ async def test_link_one_time_private_chat_and_ack(client, db_session, participan
     assert (await client.post(path + "/webhook", headers=bot, json=message)).status_code == 200
     await db_session.refresh(participant)
     assert participant.telegram_chat_id == "123"
+    status = (await client.get(status_url, headers=auth_headers(participant))).json()
+    assert status["linked"] and status["linked_at"]
     records = (await db_session.scalars(select(Notification))).all()
     assert len(records) == 1 and records[0].message == "Аккаунт привязан"
     async with Redis.from_url(settings.REDIS_URL) as cache:

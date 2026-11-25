@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -36,6 +36,7 @@ type FormValues = z.infer<typeof schema>;
 export function ContestFormPage() {
   const { contestId } = useParams();
   const editing = Boolean(contestId);
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
@@ -83,7 +84,11 @@ export function ContestFormPage() {
         ? updateContest(contestId as string, payload)
         : createContest(payload);
     },
-    onSuccess: (contest) => navigate(`/contests/${contest.id}`),
+    onSuccess: (contest) => {
+      void queryClient.invalidateQueries({ queryKey: ["contests"] });
+      void queryClient.invalidateQueries({ queryKey: ["contest", contest.id] });
+      navigate(`/contests/${contest.id}`);
+    },
   });
 
   async function onSubmit(values: FormValues) {

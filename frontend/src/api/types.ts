@@ -36,6 +36,7 @@ export type RejudgeResponse = Schemas["RejudgeResponse"];
 
 export type Board = Schemas["Board"];
 export type Entry = Schemas["Entry"];
+export type TelegramLinkStatus = Schemas["LinkStatus"];
 export type TelegramLink = Schemas["Link"];
 
 export type Page = {

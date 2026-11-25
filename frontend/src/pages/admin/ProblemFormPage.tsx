@@ -78,6 +78,7 @@ export function ProblemFormPage() {
         : createProblem(contestId as string, payload);
     },
     onSuccess: (problem) => {
+      queryClient.setQueryData(["problem", problem.id], problem);
       queryClient.invalidateQueries({ queryKey: ["contest", problem.contest_id] });
       navigate(`/contests/${problem.contest_id}`);
     },

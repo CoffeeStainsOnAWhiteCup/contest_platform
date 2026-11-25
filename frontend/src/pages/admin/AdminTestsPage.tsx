@@ -61,6 +61,7 @@ export function AdminTestsPage() {
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["tests", problemId] });
+    queryClient.invalidateQueries({ queryKey: ["problem", problemId] });
   }
 
   const save = useMutation({

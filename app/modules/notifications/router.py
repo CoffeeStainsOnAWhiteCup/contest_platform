@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -45,6 +46,16 @@ class Link(BaseModel):
 
 def link_key(code: uuid.UUID) -> str:
     return "contest:telegram:link:" + hashlib.sha256(code.bytes).hexdigest()
+
+
+class LinkStatus(BaseModel):
+    linked: bool
+    linked_at: datetime | None
+
+
+@router.get("/status")
+async def link_status(user: Annotated[User, Depends(get_current_user)]) -> LinkStatus:
+    return LinkStatus(linked=user.telegram_chat_id is not None, linked_at=user.telegram_linked_at)
 
 
 @router.post("/link", response_model=Link)

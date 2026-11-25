@@ -2,7 +2,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { cpp } from "@codemirror/lang-cpp";
 import { java } from "@codemirror/lang-java";
 import { python } from "@codemirror/lang-python";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -36,13 +36,18 @@ export function SubmitPanel({
   problem: ProblemDetail;
   contest: ContestDetail;
 }) {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [language, setLanguage] = useState<Language>("python");
   const [code, setCode] = useState(TEMPLATES.python);
   const mutation = useMutation({
     mutationFn: () =>
       createSubmission({ problem_id: problem.id, language, code }),
-    onSuccess: (submission) => navigate(`/submissions/${submission.id}`),
+    onSuccess: (submission) => {
+      queryClient.setQueryData(["submission", submission.id], submission);
+      void queryClient.invalidateQueries({ queryKey: ["submissions"] });
+      navigate(`/submissions/${submission.id}`);
+    },
   });
 
   function changeLanguage(next: Language) {

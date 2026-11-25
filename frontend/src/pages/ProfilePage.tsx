@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { errorMessage } from "@/api/errors";
-import { linkTelegram } from "@/api/notifications";
+import { linkTelegram, telegramStatus } from "@/api/notifications";
 import { myRating } from "@/api/rating";
 import { updateProfile } from "@/api/users";
 import { useAuth } from "@/auth/context";
@@ -44,7 +44,21 @@ export function ProfilePage() {
     onSuccess: () => reload(),
   });
 
-  const telegram = useMutation({ mutationFn: linkTelegram });
+  const linkStatus = useQuery({
+    queryKey: ["telegram", "status", user?.id],
+    queryFn: telegramStatus,
+    enabled: Boolean(user),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+
+  const telegram = useMutation({
+    mutationFn: async () => ({
+      ...(await linkTelegram()),
+      previousLink: linkStatus.data?.linked_at ?? null,
+    }),
+  });
+  const awaitingLink = telegram.data?.previousLink === (linkStatus.data?.linked_at ?? null);
 
   const rating = useQuery({ queryKey: ["rating", "me"], queryFn: () => myRating() });
 
@@ -83,6 +97,8 @@ export function ProfilePage() {
       <Card title="Рейтинг">
         {rating.isLoading ? (
           <p className="text-sm text-muted-foreground">Загрузка…</p>
+        ) : rating.isError ? (
+          <Alert variant="error">{errorMessage(rating.error)}</Alert>
         ) : rating.data ? (
           <p className="text-sm">
             Место {rating.data.place} · решено {rating.data.solved} · штраф {rating.data.penalty}
@@ -97,9 +113,11 @@ export function ProfilePage() {
       <Card title="Telegram">
         <div className="space-y-3 text-sm">
           {telegram.isError && <Alert variant="error">{errorMessage(telegram.error)}</Alert>}
-          {telegram.data ? (
+          {linkStatus.isError && <Alert variant="error">{errorMessage(linkStatus.error)}</Alert>}
+          {linkStatus.data?.linked && <Alert variant="success">Telegram привязан.</Alert>}
+          {telegram.data && awaitingLink ? (
             <div className="space-y-1">
-              <p>Код действует 10 минут.</p>
+              <p>Код действует {Math.ceil(telegram.data.expires_in / 60)} мин. с момента выдачи.</p>
               {telegram.data.url ? (
                 <p>
                   Откройте{" "}
@@ -114,19 +132,37 @@ export function ProfilePage() {
                   <code className="font-mono">/start {telegram.data.code}</code>.
                 </p>
               )}
+              <div className="flex gap-3">
+                <Button
+                  variant="secondary"
+                  disabled={linkStatus.isFetching}
+                  onClick={() => void linkStatus.refetch()}
+                >
+                  Проверить привязку
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={telegram.isPending}
+                  onClick={() => telegram.mutate()}
+                >
+                  Получить новый код
+                </Button>
+              </div>
             </div>
           ) : (
             <>
-              <p className="text-muted-foreground">
-                Привяжите Telegram, чтобы получать уведомления о начале и завершении конкурсов и о
-                вердиктах.
-              </p>
+              {!linkStatus.data?.linked && (
+                <p className="text-muted-foreground">
+                  Привяжите Telegram, чтобы получать уведомления о начале и завершении конкурсов и о
+                  вердиктах.
+                </p>
+              )}
               <Button
                 variant="secondary"
                 disabled={telegram.isPending}
                 onClick={() => telegram.mutate()}
               >
-                Получить код привязки
+                {linkStatus.data?.linked ? "Привязать другой чат" : "Получить код привязки"}
               </Button>
             </>
           )}

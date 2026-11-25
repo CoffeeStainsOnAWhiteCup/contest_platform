@@ -215,6 +215,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/telegram/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Link Status */
+        get: operations["link_status_api_v1_telegram_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telegram/link": {
         parameters: {
             query?: never;
@@ -713,6 +730,13 @@ export interface components {
             expires_in: number;
             /** Url */
             url: string | null;
+        };
+        /** LinkStatus */
+        LinkStatus: {
+            /** Linked */
+            linked: boolean;
+            /** Linked At */
+            linked_at: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1455,6 +1479,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_status_api_v1_telegram_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkStatus"];
                 };
             };
         };

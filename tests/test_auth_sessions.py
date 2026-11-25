@@ -184,6 +184,17 @@ async def test_oauth_callback_and_frontend_exchange(client, provider):
     assert second["name"] == "New name" and second["id"] == first["id"]
 
 
+async def test_oauth_denial_returns_browser_to_frontend(client, provider):
+    flow = await begin(client, provider)
+    res = await client.get(
+        GITHUB + "/callback", params={**flow, "error": "access_denied"},
+        headers={"accept": "text/html"},
+    )
+    assert res.status_code == 303
+    assert res.headers["location"] == settings.GITHUB_FRONTEND_URL + "?error=OAUTH_ACCESS_DENIED"
+    assert (await client.post(GITHUB + "/exchange")).status_code == 401
+
+
 async def test_oauth_denial_and_state_binding(client, provider):
     flow = await begin(client, provider)
     transport = httpx.ASGITransport(app=app, client=(uuid.uuid4().hex, 12345))

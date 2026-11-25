@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
-import { errorMessage } from "@/api/errors";
+import { ApiError, errorMessage } from "@/api/errors";
 import { getSubmission, rejudgeSubmission } from "@/api/submissions";
 import { useAuth } from "@/auth/context";
 import { Alert } from "@/components/ui/alert";
@@ -42,8 +42,13 @@ export function SubmissionDetailPage() {
     queryKey: ["submission", submissionId],
     queryFn: () => getSubmission(submissionId),
     enabled: Boolean(submissionId),
-    refetchInterval: (q) =>
-      q.state.data && isInProgress(q.state.data.status) ? 2000 : false,
+    refetchInterval: ({ state }) => {
+      if (state.error instanceof ApiError && state.error.status === 429) {
+        return Math.max(1, state.error.retryAfter ?? 60) * 1000;
+      }
+      // The submissions endpoints share a limit of 10 requests per minute.
+      return !state.error && state.data && isInProgress(state.data.status) ? 10_000 : false;
+    },
   });
 
   const rejudge = useMutation({

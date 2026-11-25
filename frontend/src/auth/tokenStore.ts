@@ -7,6 +7,7 @@ export type Tokens = {
 
 const ACCESS_KEY = "contest.access_token";
 const REFRESH_KEY = "contest.refresh_token";
+const SIGN_IN_KEY = "contest.sign_in";
 const CHANNEL_NAME = "contest-auth";
 
 type Listener = () => void;
@@ -24,6 +25,11 @@ if (channel) {
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
+    // A new sign-in in another tab replaces the profile and its cached private data.
+    if (event.key === SIGN_IN_KEY) {
+      window.location.reload();
+      return;
+    }
     if (event.key === ACCESS_KEY || event.key === REFRESH_KEY) {
       notify();
     }
@@ -65,6 +71,11 @@ export function setTokens(tokens: Tokens): void {
   storage.setItem(REFRESH_KEY, tokens.refresh);
   channel?.postMessage("update");
   notify();
+}
+
+export function startLocalSession(tokens: Tokens): void {
+  setTokens(tokens);
+  storage.setItem(SIGN_IN_KEY, String(Date.now()));
 }
 
 export function clearTokens(): void {
