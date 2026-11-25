@@ -1,7 +1,8 @@
 import uuid
 from collections.abc import Iterable
+from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +14,7 @@ from app.models.models import (
     SubmissionTestResult,
     Test,
 )
+from app.modules.contests.schemas import ContestPhase
 from app.modules.notifications.events import CONTEST_EVENTS
 
 
@@ -20,15 +22,34 @@ async def list_contests(
     db: AsyncSession,
     *,
     status: ContestStatus | None,
+    phase: ContestPhase | None = None,
     visible_statuses: Iterable[ContestStatus] | None,
     page: int,
     size: int,
-) -> tuple[list[Contest], int]:
+) -> tuple[list[Contest], int, datetime | None]:
     conditions = []
     if status is not None:
         conditions.append(Contest.status == status)
     if visible_statuses is not None:
         conditions.append(Contest.status.in_(list(visible_statuses)))
+
+    next_change = None
+    if phase in ("scheduled", ContestStatus.ACTIVE, ContestStatus.FINISHED):
+        now = datetime.now(timezone.utc)
+        active = Contest.status == ContestStatus.ACTIVE
+        # Include contests outside the current page that can enter the selected phase.
+        boundary = case((Contest.start_at > now, Contest.start_at), else_=Contest.end_at)
+        next_change = await db.scalar(
+            select(func.min(boundary)).where(*conditions, active, Contest.end_at >= now)
+        )
+        if phase == "scheduled":
+            conditions.extend([active, Contest.start_at > now])
+        elif phase == ContestStatus.ACTIVE:
+            conditions.extend([active, Contest.start_at <= now, Contest.end_at >= now])
+        else:
+            conditions.append(or_(Contest.status == ContestStatus.FINISHED, active & (Contest.end_at < now)))
+    elif phase is not None:
+        conditions.append(Contest.status == phase)
 
     total = await db.scalar(
         select(func.count()).select_from(Contest).where(*conditions)
@@ -40,7 +61,7 @@ async def list_contests(
         .offset((page - 1) * size)
         .limit(size)
     )
-    return list(contests), int(total or 0)
+    return list(contests), int(total or 0), next_change
 
 
 async def get_contest(

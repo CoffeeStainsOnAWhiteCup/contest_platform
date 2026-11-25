@@ -1,7 +1,11 @@
 import type { BadgeVariant } from "@/components/ui/badge";
-import type { ContestStatus, Language, SubmissionStatus, VerdictStatus } from "@/api/types";
+import type { ContestPhase, Language, SubmissionStatus, UserRole, VerdictStatus } from "@/api/types";
 
-type ContestPhase = ContestStatus | "scheduled";
+export const ROLE_LABELS: Record<UserRole, string> = {
+  participant: "Участник",
+  judge: "Судья",
+  admin: "Администратор",
+};
 
 const CONTEST_LABELS: Record<ContestPhase, string> = {
   scheduled: "Ожидает старта",

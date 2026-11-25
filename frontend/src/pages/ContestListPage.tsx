@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { errorMessage } from "@/api/errors";
 import { listContests } from "@/api/contests";
-import type { ContestStatus } from "@/api/types";
+import type { ContestPhase } from "@/api/types";
 import { useAuth } from "@/auth/context";
 import { Pagination } from "@/components/Pagination";
 import { Alert } from "@/components/ui/alert";
@@ -16,9 +16,10 @@ import { formatDateTime } from "@/lib/format";
 
 const SIZE = 20;
 
-const STATUS_OPTIONS: ContestStatus[] = [
+const STATUS_OPTIONS: ContestPhase[] = [
   "draft",
   "published",
+  "scheduled",
   "active",
   "finished",
   "archived",
@@ -31,18 +32,22 @@ export function ContestListPage() {
   const page = Number(params.get("page") ?? "1") || 1;
   const statusParam = params.get("status");
   const status =
-    staff && statusParam && STATUS_OPTIONS.includes(statusParam as ContestStatus)
-      ? (statusParam as ContestStatus)
+    staff && statusParam && STATUS_OPTIONS.includes(statusParam as ContestPhase)
+      ? (statusParam as ContestPhase)
       : undefined;
 
   const query = useQuery({
-    queryKey: ["contests", page, status ?? "visible"],
-    queryFn: () => listContests({ page, size: SIZE, status }),
+    queryKey: ["contests", "list", staff, page, status ?? "visible"],
+    queryFn: () => listContests({ page, size: SIZE, phase: status }),
+    refetchInterval: ({ state }) => {
+      const next = state.data?.next_phase_change_at;
+      return next ? Math.min(2_147_483_647, Math.max(1000, Date.parse(next) + 1 - Date.now())) : false;
+    },
   });
 
   const now = useContestTime(query.data?.items);
 
-  function update(next: { page?: number; status?: ContestStatus | null }) {
+  function update(next: { page?: number; status?: ContestPhase | null }) {
     const merged = new URLSearchParams(params);
     if (next.page !== undefined) {
       merged.set("page", String(next.page));
@@ -64,11 +69,11 @@ export function ContestListPage() {
         <h1 className="text-xl font-semibold">Конкурсы</h1>
         {staff && (
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Статус публикации
+            Статус конкурса
             <Select
               value={status ?? ""}
               onChange={(event) =>
-                update({ status: (event.target.value || null) as ContestStatus | null })
+                update({ status: (event.target.value || null) as ContestPhase | null })
               }
             >
               <option value="">Видимые</option>
@@ -101,7 +106,7 @@ export function ContestListPage() {
               </thead>
               <tbody>
                 {query.data.items.map((contest) => {
-                  const phase = contestPhase(contest, now);
+                  const phase = status ?? contestPhase(contest, now);
                   return (
                     <tr key={contest.id}>
                       <td>

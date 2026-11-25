@@ -109,6 +109,45 @@ async def test_admin_sees_all_contests_and_filters_by_status(
     assert filtered.json()["items"][0]["status"] == "active"
 
 
+async def test_phase_filter_matches_display_before_pagination(client, db_session, admin_user):
+    now = datetime.now(timezone.utc)
+    for title, status, start, end in (
+        ("Expired A", ContestStatus.ACTIVE, -6, -5),
+        ("Expired B", ContestStatus.ACTIVE, -4, -3),
+        ("Open", ContestStatus.ACTIVE, -1, 1),
+        ("Soon", ContestStatus.ACTIVE, 2, 3),
+        ("Finished A", ContestStatus.FINISHED, -2, -1),
+        ("Finished B", ContestStatus.FINISHED, -3, -2),
+        ("Draft", ContestStatus.DRAFT, -2, -1),
+    ):
+        await create_contest_row(
+            db_session, title=title, status=status,
+            start_at=now + timedelta(hours=start), end_at=now + timedelta(hours=end),
+        )
+    for phase, page, total, titles in (
+        ("active", 1, 1, ["Open"]),
+        ("scheduled", 1, 1, ["Soon"]),
+        ("finished", 1, 4, ["Finished A", "Finished B"]),
+        ("finished", 2, 4, ["Expired B", "Expired A"]),
+        ("draft", 1, 1, ["Draft"]),
+    ):
+        response = await client.get(
+            "/api/v1/contests", headers=auth_headers(admin_user),
+            params={"phase": phase, "page": page, "size": 2},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == total
+        assert [row["title"] for row in data["items"]] == titles
+        if phase != "draft":
+            assert datetime.fromisoformat(data["next_phase_change_at"]) == now + timedelta(hours=1)
+
+    guest = await client.get("/api/v1/contests?phase=finished")
+    assert {item["title"] for item in guest.json()["items"]} == {"Expired A", "Expired B"}
+    stored = await client.get("/api/v1/contests?status=active", headers=auth_headers(admin_user))
+    assert stored.json()["total"] == 4
+
+
 async def test_admin_creates_updates_and_deletes_contest(client, admin_user):
     created = await client.post(
         "/api/v1/contests",

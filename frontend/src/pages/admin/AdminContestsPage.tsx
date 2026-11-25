@@ -7,6 +7,8 @@ import { Pagination } from "@/components/Pagination";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { contestPhase } from "@/lib/contestWindow";
+import { useContestTime } from "@/lib/useContestTime";
 import { formatDateTime } from "@/lib/format";
 import { contestStatusLabel, contestStatusVariant } from "@/lib/labels";
 
@@ -21,6 +23,8 @@ export function AdminContestsPage() {
     queryKey: ["contests", "admin", page],
     queryFn: () => listContests({ page, size: SIZE }),
   });
+
+  const now = useContestTime(query.data?.items);
 
   const remove = useMutation({
     mutationFn: (contestId: string) => deleteContest(contestId),
@@ -52,39 +56,42 @@ export function AdminContestsPage() {
             <thead>
               <tr>
                 <th>Название</th>
-                <th className="w-32">Статус публикации</th>
+                <th className="w-32">Статус конкурса</th>
                 <th className="w-44">Начало</th>
                 <th className="w-44">Конец</th>
                 <th className="w-40">Действия</th>
               </tr>
             </thead>
             <tbody>
-              {query.data.items.map((contest) => (
-                <tr key={contest.id}>
-                  <td>
-                    <Link to={`/contests/${contest.id}`}>{contest.title}</Link>
-                  </td>
-                  <td>
-                    <Badge variant={contestStatusVariant(contest.status)}>
-                      {contestStatusLabel(contest.status)}
-                    </Badge>
-                  </td>
-                  <td>{formatDateTime(contest.start_at)}</td>
-                  <td>{formatDateTime(contest.end_at)}</td>
-                  <td className="space-x-2">
-                    <Link to={`/admin/contests/${contest.id}/edit`} className="text-sm">
-                      Изменить
-                    </Link>
-                    <button
-                      type="button"
-                      className="text-sm text-danger"
-                      onClick={() => onDelete(contest.id, contest.title)}
-                    >
-                      Удалить
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {query.data.items.map((contest) => {
+                const phase = contestPhase(contest, now);
+                return (
+                  <tr key={contest.id}>
+                    <td>
+                      <Link to={`/contests/${contest.id}`}>{contest.title}</Link>
+                    </td>
+                    <td>
+                      <Badge variant={contestStatusVariant(phase)}>
+                        {contestStatusLabel(phase)}
+                      </Badge>
+                    </td>
+                    <td>{formatDateTime(contest.start_at)}</td>
+                    <td>{formatDateTime(contest.end_at)}</td>
+                    <td className="space-x-2">
+                      <Link to={`/admin/contests/${contest.id}/edit`} className="text-sm">
+                        Изменить
+                      </Link>
+                      <button
+                        type="button"
+                        className="text-sm text-danger"
+                        onClick={() => onDelete(contest.id, contest.title)}
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <Pagination

@@ -9,14 +9,10 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/form";
+import { ROLE_LABELS } from "@/lib/labels";
 
 const SIZE = 20;
 const ROLES: UserRole[] = ["participant", "judge", "admin"];
-const ROLE_LABELS: Record<UserRole, string> = {
-  participant: "Участник",
-  judge: "Судья",
-  admin: "Администратор",
-};
 
 export function AdminUsersPage() {
   const [params, setParams] = useSearchParams();
@@ -77,7 +73,7 @@ export function AdminUsersPage() {
               <tr>
                 <th>Имя</th>
                 <th>Email</th>
-                <th className="w-44">Роль</th>
+                <th className="w-52">Роль</th>
                 <th className="w-28">Статус</th>
                 <th className="w-40">Действия</th>
               </tr>
@@ -89,6 +85,7 @@ export function AdminUsersPage() {
                   <td>{user.email}</td>
                   <td>
                     <Select
+                      className="min-w-44"
                       value={user.role}
                       disabled={setRole.isPending}
                       onChange={(event) =>

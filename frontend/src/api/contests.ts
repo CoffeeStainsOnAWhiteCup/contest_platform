@@ -3,6 +3,7 @@ import type {
   ContestCreate,
   ContestDetail,
   ContestListResponse,
+  ContestPhase,
   ContestRead,
   ContestStatus,
   ContestUpdate,
@@ -12,6 +13,7 @@ import type {
 
 export function listContests(params: {
   status?: ContestStatus;
+  phase?: ContestPhase;
   page?: number;
   size?: number;
 }): Promise<ContestListResponse> {

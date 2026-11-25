@@ -30,6 +30,7 @@ it("shows the saved photo, recovers after changing a broken URL and displays sol
   };
 
   const view = render(profile("https://example.org/first.png"));
+  expect(screen.getByText("Участник")).toBeVisible();
   const photo = screen.getByRole("img", { name: "Фотография профиля" });
   expect(photo).toHaveAttribute("src", "https://example.org/first.png");
   fireEvent.error(photo);

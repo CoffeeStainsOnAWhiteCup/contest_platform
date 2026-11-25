@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/form";
+import { ROLE_LABELS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/format";
 
 const schema = z.object({
@@ -116,7 +117,7 @@ export function ProfilePage() {
             <dt className="text-muted-foreground">Email</dt>
             <dd>{user?.email}</dd>
             <dt className="text-muted-foreground">Роль</dt>
-            <dd>{user?.role}</dd>
+            <dd>{user && ROLE_LABELS[user.role]}</dd>
           </dl>
           <Button type="submit" disabled={isSubmitting || save.isPending}>
             Сохранить

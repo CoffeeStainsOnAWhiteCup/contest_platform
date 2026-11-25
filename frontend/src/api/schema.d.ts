@@ -633,6 +633,8 @@ export interface components {
         };
         /** ContestListResponse */
         ContestListResponse: {
+            /** Next Phase Change At */
+            next_phase_change_at?: string | null;
             /** Items */
             items: components["schemas"]["ContestRead"][];
             /** Total */
@@ -1729,6 +1731,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["ContestStatus"] | null;
+                phase?: components["schemas"]["ContestStatus"] | "scheduled" | null;
                 page?: number;
                 size?: number;
             };
