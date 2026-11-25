@@ -1,104 +1,119 @@
 # Contest Platform
 
-FastAPI принимает решения и хранит их в PostgreSQL. Redis обслуживает сессии, кэш рейтинга и очередь Celery. Worker проверяет решения через Docker. Сервис notifications доставляет события в Telegram.
+Платформа для проведения олимпиад по программированию. Участники отправляют решения на Python, C++ и Java, получают результаты проверки на сайте и могут подключить уведомления в Telegram.
 
-## Запуск демонстрационного стенда
+## Запуск на Windows
 
-Из корня репозитория в PowerShell, при запущенном Docker Desktop:
+Понадобятся Git, Docker Desktop с Linux-контейнерами и Docker Compose, Python 3 для генерации локальных ключей и PowerShell. Команды ниже выполняются из папки с `docker-compose.yml`. Для первой установки скачайте проект:
+
+```powershell
+git clone https://github.com/CoffeeStainsOnAWhiteCup/contest_platform.git
+cd contest_platform
+```
+
+### 1. Подготовьте файл настроек
+
+Если стенд уже работал на этом компьютере, используйте прежнюю папку проекта и существующий `.env`. Так Compose подключит тот же том PostgreSQL с аккаунтами, решениями и привязками Telegram.
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 python tools/init_auth_env.py
+notepad .env
+```
+
+Скрипт заполнит пустой `JWT_SECRET_KEY` случайным ключом. При повторном запуске он сохранит имеющийся ключ. Если Python на Windows запускается через `py`, используйте `py -3` вместо `python`.
+
+На **новом** стенде выберите пароль PostgreSQL и укажите его в трёх местах в `.env`. Для демонстрационной базы можно использовать такой набор строк. Замените `YOUR_DB_PASSWORD` во всех трёх строках одним паролем из букв и цифр.
+
+```dotenv
+POSTGRES_USER=contest_user
+POSTGRES_PASSWORD=YOUR_DB_PASSWORD
+POSTGRES_DB=contest_demo
+DATABASE_URL=postgresql+asyncpg://contest_user:YOUR_DB_PASSWORD@db:5432/contest_demo
+SYNC_DATABASE_URL=postgresql+psycopg://contest_user:YOUR_DB_PASSWORD@db:5432/contest_demo
+```
+
+На **существующем** стенде оставьте его имя базы, пользователя, пароль и обе строки подключения. Параметры Redis, Celery и проверки решений для обычного запуска уже заданы в `.env.example`. Храните рабочий `.env` локально.
+
+### 2. Настройте интеграции в том же .env
+
+**Telegram.** Создайте бота командой `/newbot` у `@BotFather` или используйте своего действующего бота. Заполните три поля:
+
+| Параметр | Что вписать |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Токен бота, выданный BotFather |
+| `TELEGRAM_BOT_USERNAME` | Имя этого бота без символа `@` |
+| `TELEGRAM_WEBHOOK_SECRET` | Отдельный секрет. Для нового стенда выполните `python -c "import secrets; print(secrets.token_hex(32))"` и вставьте результат |
+
+Для локального webhook понадобится **ngrok authtoken** из вашего аккаунта ngrok. Его запросит скрипт на шаге 4. Если нужны только сайт и проверка решений, поля Telegram можно оставить пустыми и пропустить шаг 4.
+
+**Вход через GitHub.** Для обычной регистрации и входа по паролю достаточно настроек шага 1. Чтобы включить кнопку входа через GitHub, создайте OAuth App в настройках GitHub, в разделе **Developer settings → OAuth Apps**. Укажите Homepage URL `http://localhost:5173` и Authorization callback URL `http://localhost:8000/api/v1/auth/github/callback`. Внесите данные этого приложения в `.env`:
+
+```dotenv
+GITHUB_CLIENT_ID=ваш_client_id
+GITHUB_CLIENT_SECRET=ваш_client_secret
+GITHUB_CALLBACK_URL=http://localhost:8000/api/v1/auth/github/callback
+GITHUB_FRONTEND_URL=http://localhost:5173/auth/callback
+```
+
+### 3. Запустите платформу
+
+Запустите Docker Desktop, дождитесь готовности движка и выполните:
+
+```powershell
 docker compose up -d --build
+docker compose ps -a
 Invoke-RestMethod http://localhost:8000/health
-docker compose exec api python -m alembic check
 ```
 
-Для существующей БД сохраните свои параметры подключения. Async и sync URL в локальном .env должны указывать на одну БД. Swagger доступен на http://localhost:8000/docs. Для демонстрации входа через GitHub в Swagger задайте GITHUB_FRONTEND_URL=http://localhost:8000/docs и зарегистрируйте GITHUB_CALLBACK_URL в OAuth-приложении. Для Telegram заполните локальные параметры из .env.example и зарегистрируйте публичный HTTPS-адрес webhook. Подробности приведены в [инструкции по OAuth](docs/AUTH_SESSIONS.md) и [контрактах рейтинга, профиля и Telegram](docs/BACKEND_API.md).
+Compose поднимет PostgreSQL, Redis, API, фронтенд, обработчики решений и уведомлений и сервис резервного копирования. Одноразовый контейнер `migrate` применяет миграции и завершается с кодом 0. Если API ещё запускается, повторите запрос к `/health` через несколько секунд.
 
-Новые пароли защищены bcrypt с cost 12 в формате bcrypt-sha256 v2. Предварительная обработка пароля сохраняет различия после 72-го байта. Ранее созданные хеши Argon2id продолжают проверяться и обновляются после успешного входа по паролю.
+- Сайт — [localhost:5173](http://localhost:5173).
+- Swagger UI — [localhost:8000/docs](http://localhost:8000/docs).
 
-## Фронтенд
+Зарегистрируйтесь на сайте для входа под участником. При первом старте Docker потребуется интернет для загрузки образов. Образы для языков проверки worker скачивает при первом использовании.
 
-Интерфейс на React, TypeScript и Vite лежит в каталоге `frontend`. В Compose он собирается отдельным образом (nginx) и открывается на http://localhost:5173, а запросы к `/api` проксируются на сервис `api`. Для локальной разработки запустите API в Compose, затем:
+### 4. Запустите Telegram и привяжите чат
 
 ```powershell
-cd frontend
-npm ci
-npm run dev
+.\tools\start-telegram.ps1
 ```
 
-Dev-сервер слушает порт 5173 и проксирует `/api` на http://localhost:8000, поэтому `GITHUB_FRONTEND_URL` по умолчанию (`http://localhost:5173/auth/callback`) уже подходит. Базовый путь API задаёт `VITE_API_BASE_URL` (по умолчанию `/api/v1`). Типы генерируются из OpenAPI командой `npm run gen:api` (по умолчанию из снимка `frontend/openapi.json`, при необходимости задайте `OPENAPI_URL`). Проверки фронтенда:
+Если PowerShell блокирует выполнение локальных скриптов, для этого запуска используйте `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\start-telegram.ps1`.
 
-```powershell
-cd frontend
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-```
+При первом запросе введите **ngrok authtoken**. Скрипт сохраняет его для текущего пользователя Windows в `%LOCALAPPDATA%\ContestPlatform\ngrok-token.xml`. Если задана переменная окружения `NGROK_AUTHTOKEN`, скрипт использует её. Он запускает контейнеры `contest-tg-receiver` и `contest-tg-ngrok`, получает публичный HTTPS-адрес и регистрирует webhook. Признак успеха — `Webhook registered.`
 
-CI-воркфлой `frontend.yml` выполняет эти команды при изменениях в `frontend/`.
+Откройте свой профиль на сайте, нажмите **«Получить код привязки»**, перейдите в бота и нажмите **Start**. Можно также отправить боту команду `/start КОД` из профиля. Код действует 10 минут. Команда `/profile` в чате покажет привязанный аккаунт. Для проверки доставки отправьте решение в активный конкурс и дождитесь сообщения с вердиктом.
 
-## Данные для демонстрации
+### 5. Добавьте демоданные при необходимости
 
-В работающем Compose-проекте с базой `contest_demo` выполните:
+Для локальной базы `contest_demo` выполните:
 
 ```powershell
 docker compose exec api python -m tools.seed_demo
 ```
 
-Скрипт создаёт администратора, судью и двух участников с адресами
-`demo.admin@example.com`, `demo.judge@example.com`, `demo.anna@example.com` и `demo.ivan@example.com`.
-Пароли выводятся один раз при создании. Для тренировки доступны две задачи с примерами и скрытыми тестами.
-В глобальный рейтинг входят три демонстрационные посылки прошлого тура: Анна решила одну задачу со штрафом 5, Иван — одну со штрафом 30.
-Повторный запуск сохраняет пользователей, привязки, пароли и расписание. Для другой демонстрационной БД явно укажите её имя через `--database`.
+Появятся тренировочный конкурс, задачи и аккаунты `demo.admin@example.com`, `demo.judge@example.com`, `demo.anna@example.com` и `demo.ivan@example.com`. Сохраните выведенные пароли: скрипт показывает их при создании аккаунтов. Если вы специально используете другую локальную базу для демонстрации, укажите её фактическое имя через `--database ИМЯ_БАЗЫ`.
 
-### Проверка Telegram и Judge
+Примеры для кнопки импорта тестов задачи: [sum-tests.json](docs/examples/sum-tests.json) и [sum-tests.csv](docs/examples/sum-tests.csv).
 
-1. Откройте профиль своего участника и убедитесь, что Telegram привязан.
-2. Когда готовы начать, выполните `docker compose exec api python -m tools.seed_demo --live check-01`.
-   Откройте в разделе «Конкурсы» карточку «Демо · Telegram · check-01». Скрипт печатает время в UTC, сайт показывает время браузера.
-   Старт через 2 минуты после создания, продолжительность 10 минут. Для повтора в другое время используйте новую метку, например `check-02`.
-3. После сообщения о старте обновите страницу задачи «Сумма двух чисел». Выберите Python.
-   Отправьте `print(0)` и дождитесь WRONG_ANSWER. Затем отправьте `print(sum(map(int, input().split())))` и дождитесь ACCEPTED.
-   Сверьте каждое сообщение бота с вердиктом в разделе «Решения» и проверьте одну решённую задачу в таблице конкурса.
-4. После конца интервала дождитесь сообщения о завершении. Начало и конец получают участники, которые привязали Telegram до соответствующего события. Вердикт получает владелец посылки.
-   Фоновый обработчик проверяет очередь примерно каждые 10 секунд.
-5. Если вердикт ещё не появился на сайте, смотрите `docker compose logs --since=5m worker`.
-   Если вердикт уже есть, проверьте доставку через `docker compose logs --since=5m notifications`.
+## Остановка и следующий запуск
 
-## Сценарий защиты
-
-1. Подготовить администратора и участника на БД демонстрационного ноутбука. Войти участником, проверить профиль и привязать Telegram до начала контеста.
-2. Администратором создать контест и задачу A+B с ограничениями в условии. Загрузить один из [примеров импорта](docs/CONTESTS_API.md). Участнику видны только примеры.
-3. Установить статус active в интервале соревнования. Отправить неверное решение, затем правильное. Проверить WRONG_ANSWER и ACCEPTED в истории, число решённых задач 0 → 1 и оба сообщения в Telegram.
-4. Выполнить rejudge под судьёй. После повторного ACCEPTED результат остаётся 1. Проверить уведомления о старте и завершении короткого контеста и отказ при попытке отправки после окончания.
-5. Открыть /health и /metrics. HTTP-логи без query-параметров и токенов доступны администратору через `docker compose exec api tail /var/log/contest/http.jsonl`. В Compose используется суточная ротация файла API и 30 архивов.
-
-## Проверки
+Чтобы полностью остановить стенд с Telegram, сначала остановите туннель, затем приёмник. Если запускали только сайт, достаточно последней команды.
 
 ```powershell
-docker compose run --rm --build test sh -c 'AUTH_TEST_DATABASE_URL=$DATABASE_URL python -m pytest -q -ra --cov=app.modules.auth --cov=app.modules.rating --cov=app.modules.judge --cov-report=json:coverage.json && python -m tools.check_coverage coverage.json'
-docker compose run --rm test python -m pytest -q -s tests/perf_routes.py
+docker stop contest-tg-ngrok
+docker stop contest-tg-receiver
+docker compose down
 ```
 
-Используйте локальный тестовый PostgreSQL: фикстуры пересоздают таблицы в отдельной БД contest_test. Бенчмарк запускайте отдельно от основного прогона. Он открывает локальный HTTP-порт, создаёт 100 участников и 500 принятых решений, прогревает лидерборд и измеряет GET при 50 RPS и создание задач при 20 RPS. Для каждого профиля выводятся количество, p95 и максимум. Порог p95 составляет 50 мс для прогретого рейтинга и 500 мс для записи.
+Обычный `down` сохраняет данные. Параметр `-v` удаляет тома, в том числе базу и резервные копии. При следующем запуске выполните `docker compose up -d`, затем `.\tools\start-telegram.ps1` для подключения Telegram. После обновления кода используйте `docker compose up -d --build`. После смены токена или секрета Telegram остановите оба Telegram-контейнера, примените настройки командой `docker compose up -d` и снова запустите скрипт.
 
-Для локальных линтеров установите requirements-dev.txt, затем выполните `ruff check .` и `mypy`. Для включения хуков установите pre-commit и выполните `pre-commit install` в этом окружении. CI проверяет PR, запускает Docker-тесты и разворачивает временный стенд. После слияния main публикует образ с тегом SHA в GHCR при разрешённой записи Packages. Демонстрационный ноутбук обновляется через git и Compose.
+## Если что-то не запускается
 
-## Резервная копия
-
-Сервис backup сохраняет архив фактической базы из DATABASE_URL при старте и затем раз в сутки в том postgres_backup. Архивы старше `BACKUP_RETENTION_DAYS` (по умолчанию 14) удаляются после успешного дампа. Не удаляйте тома при перезапуске. Для проверки можно восстановить копию в **новую пустую** базу. Внутри контейнера backup доступны pg_restore и psql. Перед восстановлением задайте отдельный адрес БД назначения, отличный от адреса работающей платформы.
-
-```powershell
-docker compose exec backup sh /opt/backup.sh --once
-docker compose exec backup ls -lt /backups
-```
-
-После создания отдельной пустой базы в командной строке контейнера backup:
-
-```sh
-pg_restore --exit-on-error --dbname="$RESTORE_URL" "/backups/$ARCHIVE"
-psql "$RESTORE_URL" -c 'SELECT version_num FROM alembic_version'
-```
+| Симптом | Что проверить |
+|---|---|
+| Сайт или API недоступен | Выполните `docker compose ps -a` и `docker compose logs --tail=60 migrate api frontend`. Проверьте настройки базы и доступность портов 5173, 8000, 5432 и 6379. |
+| Решение долго проверяется | Выполните `docker compose logs --tail=60 worker`. При первой отправке убедитесь, что Docker может скачать образ выбранного языка. |
+| Бот не отвечает на /start | Запустите скрипт Telegram, дождитесь `Webhook registered.` и запросите свежий код в профиле. Для проверки туннеля используйте `docker logs --tail=40 contest-tg-ngrok`. |
+| Бот подтвердил привязку, но вердикт не пришёл | Проверьте результат отправки на сайте и журнал `docker compose logs --tail=60 notifications`. |
