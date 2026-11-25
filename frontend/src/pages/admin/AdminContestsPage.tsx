@@ -52,7 +52,7 @@ export function AdminContestsPage() {
             <thead>
               <tr>
                 <th>Название</th>
-                <th className="w-32">Статус</th>
+                <th className="w-32">Статус публикации</th>
                 <th className="w-44">Начало</th>
                 <th className="w-44">Конец</th>
                 <th className="w-40">Действия</th>

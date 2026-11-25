@@ -17,7 +17,7 @@ export function LeaderboardPage() {
     queryKey: ["leaderboard", contestId, page],
     queryFn: () => contestLeaderboard(contestId, page, SIZE),
     enabled: Boolean(contestId),
-    staleTime: 60_000,
+    staleTime: 0,
   });
 
   return (

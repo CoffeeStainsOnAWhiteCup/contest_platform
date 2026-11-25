@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -24,6 +25,28 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+function ProfilePhoto({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed || !/^https?:\/\//i.test(url)) {
+    return <p className="text-sm text-muted-foreground" role="status">
+      Не удалось загрузить фото. Укажите прямую ссылку на изображение.
+    </p>;
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Фотография профиля"
+      width={80}
+      height={80}
+      className="h-20 w-20 rounded-full object-cover"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export function ProfilePage() {
   const { user, reload } = useAuth();
@@ -61,7 +84,12 @@ export function ProfilePage() {
   });
   const awaitingLink = telegram.data?.previousLink === (linkStatus.data?.linked_at ?? null);
 
-  const rating = useQuery({ queryKey: ["rating", "me"], queryFn: () => myRating() });
+  const rating = useQuery({
+    queryKey: ["rating", "me", user?.id],
+    queryFn: () => myRating(),
+    enabled: Boolean(user),
+    staleTime: 0,
+  });
 
   async function onSubmit(values: FormValues) {
     await save.mutateAsync(values).catch(() => undefined);
@@ -73,6 +101,7 @@ export function ProfilePage() {
         <form className="space-y-3" onSubmit={handleSubmit(onSubmit)} noValidate>
           {save.isError && <Alert variant="error">{errorMessage(save.error)}</Alert>}
           {save.isSuccess && <Alert variant="success">Профиль сохранён.</Alert>}
+          {user?.avatar_url && <ProfilePhoto key={user.avatar_url} url={user.avatar_url} />}
           <div>
             <Label htmlFor="name">Имя</Label>
             <Input id="name" {...register("name")} />
@@ -100,14 +129,21 @@ export function ProfilePage() {
           <p className="text-sm text-muted-foreground">Загрузка…</p>
         ) : rating.isError ? (
           <Alert variant="error">{errorMessage(rating.error)}</Alert>
-        ) : rating.data ? (
-          <p className="text-sm">
-            Место {rating.data.place} · решено {rating.data.solved} · штраф {rating.data.penalty}
-          </p>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Пока нет результатов: отправьте хотя бы одно решение.
-          </p>
+          <dl className="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <dt className="text-muted-foreground">Решено задач</dt>
+              <dd className="text-lg font-semibold">{rating.data?.solved ?? 0}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Место</dt>
+              <dd className="text-lg">{rating.data?.place ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Штраф, мин</dt>
+              <dd className="text-lg">{rating.data?.penalty ?? 0}</dd>
+            </div>
+          </dl>
         )}
       </Card>
 

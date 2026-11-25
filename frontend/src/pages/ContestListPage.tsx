@@ -10,6 +10,8 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/form";
 import { contestStatusLabel, contestStatusVariant } from "@/lib/labels";
+import { contestPhase } from "@/lib/contestWindow";
+import { useContestTime } from "@/lib/useContestTime";
 import { formatDateTime } from "@/lib/format";
 
 const SIZE = 20;
@@ -38,6 +40,8 @@ export function ContestListPage() {
     queryFn: () => listContests({ page, size: SIZE, status }),
   });
 
+  const now = useContestTime(query.data?.items);
+
   function update(next: { page?: number; status?: ContestStatus | null }) {
     const merged = new URLSearchParams(params);
     if (next.page !== undefined) {
@@ -60,7 +64,7 @@ export function ContestListPage() {
         <h1 className="text-xl font-semibold">Конкурсы</h1>
         {staff && (
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Статус
+            Статус публикации
             <Select
               value={status ?? ""}
               onChange={(event) =>
@@ -96,25 +100,28 @@ export function ContestListPage() {
                 </tr>
               </thead>
               <tbody>
-                {query.data.items.map((contest) => (
-                  <tr key={contest.id}>
-                    <td>
-                      <Link to={`/contests/${contest.id}`}>{contest.title}</Link>
-                      {contest.can_submit && (
-                        <Badge variant="success" className="ml-2">
-                          можно отправлять
+                {query.data.items.map((contest) => {
+                  const phase = contestPhase(contest, now);
+                  return (
+                    <tr key={contest.id}>
+                      <td>
+                        <Link to={`/contests/${contest.id}`}>{contest.title}</Link>
+                        {phase === "active" && (
+                          <Badge variant="success" className="ml-2">
+                            можно отправлять
+                          </Badge>
+                        )}
+                      </td>
+                      <td>
+                        <Badge variant={contestStatusVariant(phase)}>
+                          {contestStatusLabel(phase)}
                         </Badge>
-                      )}
-                    </td>
-                    <td>
-                      <Badge variant={contestStatusVariant(contest.status)}>
-                        {contestStatusLabel(contest.status)}
-                      </Badge>
-                    </td>
-                    <td>{formatDateTime(contest.start_at)}</td>
-                    <td>{formatDateTime(contest.end_at)}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>{formatDateTime(contest.start_at)}</td>
+                      <td>{formatDateTime(contest.end_at)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

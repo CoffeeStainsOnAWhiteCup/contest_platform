@@ -1,7 +1,10 @@
 import type { BadgeVariant } from "@/components/ui/badge";
 import type { ContestStatus, Language, SubmissionStatus, VerdictStatus } from "@/api/types";
 
-const CONTEST_LABELS: Record<ContestStatus, string> = {
+type ContestPhase = ContestStatus | "scheduled";
+
+const CONTEST_LABELS: Record<ContestPhase, string> = {
+  scheduled: "Ожидает старта",
   draft: "Черновик",
   published: "Опубликован",
   active: "Идёт",
@@ -9,7 +12,8 @@ const CONTEST_LABELS: Record<ContestStatus, string> = {
   archived: "В архиве",
 };
 
-const CONTEST_VARIANTS: Record<ContestStatus, BadgeVariant> = {
+const CONTEST_VARIANTS: Record<ContestPhase, BadgeVariant> = {
+  scheduled: "info",
   draft: "neutral",
   published: "info",
   active: "success",
@@ -17,11 +21,11 @@ const CONTEST_VARIANTS: Record<ContestStatus, BadgeVariant> = {
   archived: "neutral",
 };
 
-export function contestStatusLabel(status: ContestStatus): string {
+export function contestStatusLabel(status: ContestPhase): string {
   return CONTEST_LABELS[status];
 }
 
-export function contestStatusVariant(status: ContestStatus): BadgeVariant {
+export function contestStatusVariant(status: ContestPhase): BadgeVariant {
   return CONTEST_VARIANTS[status];
 }
 
