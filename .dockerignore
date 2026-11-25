@@ -14,3 +14,6 @@ htmlcov
 coverage.json
 
 .coverage.*
+
+# The backend image does not use the frontend; keep its node_modules out.
+frontend

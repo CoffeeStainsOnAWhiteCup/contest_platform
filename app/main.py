@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine
 from app.core import monitoring
+from app.modules.auth.github import CALLBACK, PRIVATE_HEADERS
 from app.modules.auth.router import router as auth_router
 from app.modules.contests.router import contests_router, problems_router
 from app.modules.notifications.router import router as telegram_router
@@ -23,6 +26,26 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Contest Platform", lifespan=lifespan)
+
+
+@app.exception_handler(HTTPException)
+async def browser_oauth_error(request: Request, exc: HTTPException):
+    github_navigation = request.method == "GET" and request.url.path in {
+        "/api/v1/auth/github", CALLBACK,
+    }
+    if github_navigation and "text/html" in request.headers.get("accept", ""):
+        codes = {
+            "INVALID_OAUTH_STATE", "INVALID_OAUTH_CODE", "OAUTH_ACCESS_DENIED",
+            "OAUTH_CONFIG_ERROR", "OAUTH_PROVIDER_UNAVAILABLE",
+            "OAUTH_EMAIL_CONFLICT", "OAUTH_VERIFIED_EMAIL_REQUIRED",
+        }
+        if isinstance(exc.detail, str) and exc.detail in codes:
+            return RedirectResponse(
+                f"{settings.GITHUB_FRONTEND_URL}?error={exc.detail}", 303, headers=PRIVATE_HEADERS
+            )
+    return await http_exception_handler(request, exc)
+
+
 app.middleware("http")(monitoring.observe)
 app.include_router(monitoring.router)
 frontend = urlsplit(settings.GITHUB_FRONTEND_URL)
