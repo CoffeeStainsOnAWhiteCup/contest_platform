@@ -570,6 +570,12 @@ export interface components {
             id: number;
             /** Type */
             type: string;
+            /** First Name */
+            first_name?: string | null;
+            /** Last Name */
+            last_name?: string | null;
+            /** Username */
+            username?: string | null;
         };
         /** ContestCreate */
         ContestCreate: {
@@ -737,6 +743,10 @@ export interface components {
             linked: boolean;
             /** Linked At */
             linked_at: string | null;
+            /** Name */
+            name: string | null;
+            /** Username */
+            username: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1086,6 +1096,8 @@ export interface components {
         };
         /** Update */
         Update: {
+            /** Update Id */
+            update_id?: number | null;
             message?: components["schemas"]["Message"] | null;
         };
         /** UserRead */

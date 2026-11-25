@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/form";
+import { formatDateTime } from "@/lib/format";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Введите имя").max(100, "Не более 100 символов"),
@@ -114,7 +115,19 @@ export function ProfilePage() {
         <div className="space-y-3 text-sm">
           {telegram.isError && <Alert variant="error">{errorMessage(telegram.error)}</Alert>}
           {linkStatus.isError && <Alert variant="error">{errorMessage(linkStatus.error)}</Alert>}
-          {linkStatus.data?.linked && <Alert variant="success">Telegram привязан.</Alert>}
+          {linkStatus.data?.linked && (
+            <>
+              <Alert variant="success">Telegram привязан.</Alert>
+              {linkStatus.data.name || linkStatus.data.username ? (
+                <p>
+                  {linkStatus.data.name} {linkStatus.data.username && `@${linkStatus.data.username}`}
+                </p>
+              ) : (
+                <p>Чтобы увидеть имя аккаунта, отправьте боту <code>/profile</code> и обновите страницу.</p>
+              )}
+              {linkStatus.data.linked_at && <p>Дата привязки: {formatDateTime(linkStatus.data.linked_at)}</p>}
+            </>
+          )}
           {telegram.data && awaitingLink ? (
             <div className="space-y-1">
               <p>Код действует {Math.ceil(telegram.data.expires_in / 60)} мин. с момента выдачи.</p>

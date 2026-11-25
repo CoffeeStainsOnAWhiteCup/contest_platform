@@ -53,7 +53,7 @@ def send_one(db: Session, item: Notification, token: str) -> None:
         db.execute(
             update(User)
             .where(User.id == item.user_id, User.telegram_chat_id == item.chat_id)
-            .values(telegram_chat_id=None, telegram_linked_at=None)
+            .values(telegram_chat_id=None, telegram_linked_at=None, telegram_name=None, telegram_username=None)
         )
         item.status = "failed"
     elif code == 429:
